@@ -1,0 +1,30 @@
+# python
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# experiment / build logs
+*.log
+
+# latex build artifacts
+paper/main.aux
+paper/main.log
+paper/main.out
+paper/page*.png
+
+# large model / data artifacts (kept outside the repo)
+*.pth
+*.onnx
+*.engine
+*.zip
+*.bag
+*.npy
+*.mp4
+
+# downloads and previews
+*.part*
+page*.png
+
+# tooling
+node_modules/
+.zcode/

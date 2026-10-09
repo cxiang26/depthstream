@@ -1,0 +1,22 @@
+# core
+numpy
+opencv-python-headless>=4.8
+matplotlib
+pillow
+
+# student / teacher inference
+torch>=2.4
+# GPU path: TensorRT (tested with 11.3 pip wheels; engine built per-device)
+tensorrt
+# CPU path
+onnxruntime>=1.26
+
+# model export / IO
+onnx
+onnxconverter-common
+einops
+timm
+piexif
+
+# utilities
+huggingface_hub
