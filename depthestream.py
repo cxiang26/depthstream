@@ -79,15 +79,17 @@ def upsample_flow(fl, up, size):
 
 
 def align_affine(a_depth, b_depth, valid):
-    """(scale, shift) mapping a -> b by least squares on valid mask."""
-    a, b = a_depth[valid], b_depth[valid]
+    """(scale, shift) mapping a -> b by LSQ over the valid mask (ddof-free)."""
+    a = np.asarray(a_depth)[valid].astype(np.float64)
+    b = np.asarray(b_depth)[valid].astype(np.float64)
     if a.size < 100:
         return 1.0, 0.0
-    var = float(np.var(a))
-    if var < 1e-9:
+    da = a - a.mean()
+    db = b - b.mean()
+    denom = float(np.sum(da * da))
+    if denom < 1e-9:
         return 1.0, 0.0
-    scale = float(np.cov(a, b)[0, 1] / var)
-    scale = float(np.clip(scale, 0.25, 4.0))
+    scale = float(np.clip(np.sum(da * db) / denom, 0.25, 4.0))
     shift = float(np.mean(b) - scale * np.mean(a))
     return scale, shift
 
