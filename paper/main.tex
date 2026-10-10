@@ -421,7 +421,10 @@ trained.}
 \includegraphics[width=0.85\linewidth]{pareto.png}
 \caption{\textbf{Latency--accuracy plane} on Sintel. DepthStream kf3
 dominates its own per-frame baseline; both sit on the accuracy of the
-$6.7\times$ slower teacher with a fraction of the latency.}
+$6.7\times$ slower teacher with a fraction of the latency. Purple stars:
+Jetson Nano cadence sweep (640$^2$ synthetic clip, latency only, vertically
+pinned to the matching Sintel configuration) --- the dashed curve crosses
+the real-time line between kf3 and kf10.}
 \label{fig:pareto}
 \end{figure}
 
@@ -548,7 +551,9 @@ stream, because flow and warping dominate the per-frame budget once
 inference is amortized away; and (iii)~\emph{2019 hardware streams in real
 time} --- on a Jetson Nano 4GB (Maxwell GPU, 4\,GB shared memory), per-frame
 inference reaches only 21\,FPS at $640{\times}480$, below the real-time
-line, while DepthStream kf10 runs at 90\,FPS ($4.2\times$) --- the same
+line, while DepthStream kf10 runs at 90\,FPS ($4.2\times$; the full cadence
+sweep 21/48/90/90\,FPS traces the amortization curve on
+Fig.~\ref{fig:pareto}) --- the same
 runtime whose closest learned-propagation competitor~\cite{velodepth}
 targets an RTX~3090. Cross-device agreement of the streamed fields
 (Nano TRT fp32 vs.\ desktop ORT fp32, 30 frames) is Pearson $r{=}0.956$;
@@ -571,6 +576,10 @@ RTX 3060 Laptop 6GB & TensorRT 11.3 & fp16 & 1.20\,ms & $\sim$150 FPS\\
 Ryzen 7 5800H (CPU) & ORT 1.26 & fp32 & 6.95\,ms & 249 FPS\\
 Jetson Nano 4GB (2019) & TensorRT 8.2 & fp32 & 29.9\,ms & 90 FPS\\
 \bottomrule
+\multicolumn{5}{l}{\footnotesize Nano full cadence sweep (per-frame / kf3 /
+kf10 / kf10-adp):}\\
+\multicolumn{5}{l}{\footnotesize 47.2 / 20.9 / 11.2 / 11.2\,ms
+(21.2 / 47.9 / 89.6 / 89.6\,FPS); see also Fig.~\ref{fig:pareto}.}\\
 \end{tabular}
 \end{table}
 

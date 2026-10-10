@@ -29,6 +29,17 @@ for label, (key, c, m) in pts.items():
         continue
     plt.scatter(S[key]["ms_per_frame"], S[key]["delta1"], c=c, marker=m, s=70,
                 label=label, zorder=3)
+
+# Jetson Nano 4GB (640x480 synthetic clip, no GT -> latency-only, MAXN):
+# dense / kf3 / kf10 / kf10-adp. Plotted at the Sintel mean delta1 of the
+# same config for vertical positioning; dashed line = the Nano curve.
+NANO = {"dense": 47.2, "kf3": 20.9, "kf10": 11.2, "kf10-adp": 11.2}
+nano_pts = [(NANO[k], S[k]["delta1"]) for k in NANO if k in S]
+if nano_pts:
+    xs, ys = zip(*nano_pts)
+    plt.plot(xs, ys, color="tab:purple", lw=1.2, ls="--", alpha=0.6, zorder=2)
+    plt.scatter(xs, ys, c="tab:purple", marker="*", s=110, zorder=3,
+                label="Jetson Nano 4GB (latency only)")
 plt.xscale("log")
 plt.xlabel("latency (ms/frame, log)  -  lower is better")
 plt.ylabel("delta1 (aligned)  -  higher is better")
