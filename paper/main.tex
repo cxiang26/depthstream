@@ -533,31 +533,43 @@ ambush sequences), not by the streaming mechanism.}
 \end{figure}
 
 \subsection{Platform and backend invariance}
-Table~\ref{tab:platform} extends the evaluation to a CPU-only deployment.
-The CPU runs the fp32 ONNX graph (4 threads); INT8 dynamic quantization is
-counterproductive for this convolutional model (82--144\,ms, a $12$--$20\times$
-slowdown, because dynamic quantization falls back to slow reference kernels),
-though it shrinks the artifact to 6\,MB. Two claims matter for deployment:
+Table~\ref{tab:platform} extends the evaluation across devices, from a
+2019 \$99 developer board to a laptop GPU. The CPU runs the fp32 ONNX graph
+(4 threads); INT8 dynamic quantization is counterproductive for this
+convolutional model (82--144\,ms, a $12$--$20\times$ slowdown, because
+dynamic quantization falls back to slow reference kernels), though it
+shrinks the artifact to 6\,MB. Three claims matter for deployment:
 (i)~\emph{accuracy is backend-invariant} --- over all configurations the
-fp32-CPU and fp16-GPU predictions agree to $\delta_1 \leq 10^{-4}$; and
+fp32-CPU and fp16-GPU predictions agree to $\delta_1 \leq 10^{-4}$;
 (ii)~\emph{amortization flips the CPU calculus} --- with the student's cost
 amortized over ten frames, the CPU stream is not merely real-time
 (249\,FPS end-to-end at $640{\times}480$) but \emph{faster} than the GPU
-stream, because flow and warping dominate the per-frame budget once inference
-is amortized away.
+stream, because flow and warping dominate the per-frame budget once
+inference is amortized away; and (iii)~\emph{2019 hardware streams in real
+time} --- on a Jetson Nano 4GB (Maxwell GPU, 4\,GB shared memory), per-frame
+inference reaches only 21\,FPS at $640{\times}480$, below the real-time
+line, while DepthStream kf10 runs at 90\,FPS ($4.2\times$) --- the same
+runtime whose closest learned-propagation competitor~\cite{velodepth}
+targets an RTX~3090. Cross-device agreement of the streamed fields
+(Nano TRT fp32 vs.\ desktop ORT fp32, 30 frames) is Pearson $r{=}0.956$;
+the residual gap reflects platform-specific engine kernels and flow-level
+numerics, both invisible to the affine-invariant protocol of
+Tables~\ref{tab:main} and~\ref{tab:ablation}.
 
 \begin{table}[t]
 \centering\small
-\caption{\textbf{Platform} (student backend; accuracy from the Sintel
-protocol). Backend invariance: $|\Delta\delta_1| \leq 10^{-4}$ for every
-config.}
+\caption{\textbf{Platforms} (student backend; E2E on a $640{\times}480$
+synthetic clip, kf10, MAXN power mode). Backend invariance:
+$|\Delta\delta_1| \leq 10^{-4}$ between GPU-fp16 and CPU-fp32 on the
+Sintel protocol.}
 \label{tab:platform}
 \begin{tabular}{llccc}
 \toprule
 Platform & Backend & Prec. & model & E2E kf10\\
 \midrule
 RTX 3060 Laptop 6GB & TensorRT 11.3 & fp16 & 1.20\,ms & $\sim$150 FPS\\
-Ryzen 7 5800H & ORT 1.26 & fp32 & 6.95\,ms & 249 FPS\\
+Ryzen 7 5800H (CPU) & ORT 1.26 & fp32 & 6.95\,ms & 249 FPS\\
+Jetson Nano 4GB (2019) & TensorRT 8.2 & fp32 & 29.9\,ms & 90 FPS\\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -598,14 +610,15 @@ it makes no motion-model assumption.
 scheduler masks the symptom (early re-anchoring) but does not model
 occlusion explicitly. (ii) Our evaluation covers one synthetic and three real
 sequences; extending Bonn to all published sequences and adding TUM would
-strengthen the real-data claim. (iii) The runtime is evaluated on one GPU and
-one CPU; Jetson-class results (official DepthART scripts exist) and power
-measurements are pending. (iv) The student consumes no camera intrinsics
-here; the metric variant of DepthART would require propagating $K$ jointly
-with the field. (v) VeloDepth~\cite{velodepth} reports a temporal-consistency
-metric ($\tau^{\mathrm{SSI}}_5$) that we have not yet reproduced, so our
-comparison to it is architectural and architectural-latency based rather than
-metric-exact.
+strengthen the real-data claim. (iii) Power consumption is not yet reported
+for the platform table, and GPU-side evaluation uses one consumer laptop GPU;
+Orin-class Jetson results are expected to transfer directly (same TensorRT
+pipeline, official DepthART scripts exist). (iv) The student consumes no
+camera intrinsics here; the metric variant of DepthART would require
+propagating $K$ jointly with the field. (v) VeloDepth~\cite{velodepth}
+reports a temporal-consistency metric ($\tau^{\mathrm{SSI}}_5$) that we have
+not yet reproduced, so our comparison to it is architectural and
+latency-based rather than metric-exact.
 
 %--------------------------------------------------------------------------
 \section{Conclusion}
