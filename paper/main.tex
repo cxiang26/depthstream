@@ -115,7 +115,7 @@ RGB-D Dynamic dataset~\cite{bonn} answers with four findings:
   ($\delta_1$ 0.4614 on Sintel, 0.9637 on Bonn), temporal warping error drops
   15\%, and latency drops 20\%. The per-frame baseline is strictly dominated.
   \item \textbf{Streaming beats the teacher's stability.} At $1/6.7$ of its
-  latency, kf3 keeps 93.6\% (Sintel) and 98.2\% (Bonn) of the
+  latency, kf3 keeps 93.6\% (Sintel) and 99.4\% (Bonn) of the
   Depth-Anything-V2-Large teacher's accuracy, with $1.37\times$ lower temporal
   error; adaptive scheduling at $K{=}10$ raises the consistency advantage to
   $1.75\times$.
@@ -134,7 +134,7 @@ RGB-D Dynamic dataset~\cite{bonn} answers with four findings:
 We additionally report two negative results that bound the design space.
 First, a speculative-cascade variant --- running a large teacher only on
 disagreement regions --- has no headroom for distilled students, because the
-student already agrees with the teacher on 93.6--98.2\% of pixels; we argue
+student already agrees with the teacher on 93.6--99.4\% of pixels; we argue
 this explains why propagation-based systems built on \emph{non-distilled}
 foundation models~\cite{velodepth} need learned corrections. Second, a
 homography-based geometric propagation variant helps only on rotation-dominated
@@ -219,7 +219,11 @@ any of the above can serve as its student if exportable.
 Reusing per-frame computation across frames is a classic amortization
 strategy. Deep Feature Flow~\cite{dff} propagated deep features from
 keyframes through flow for video recognition; XMem~\cite{xmem} used
-keyframe-anchored memory for long video segmentation. For depth,
+keyframe-anchored memory for long video segmentation. A related family
+adapts networks at test time to the incoming stream; our re-anchoring is
+orthogonal --- it adapts only the two scalar degrees of freedom that the
+affine-invariant output leaves ambiguous, and never touches the weights.
+For depth,
 VeloDepth~\cite{velodepth} is the closest system: a frozen
 UniDepthV2/UniK3D base runs on keyframes, and a \emph{learned} 55\,M-parameter
 propagation module (multi-branch ConvNeXt encoder, gated corrections, trained
@@ -298,6 +302,43 @@ equivalently, i.e., pure re-anchoring without blending.
 
 \subsection{Photometric-residual adaptive scheduling}
 \label{sec:adaptive}
+Figure~\ref{alg:runtime} summarizes the complete per-frame decision
+procedure.
+\begin{figure}[t]
+\centering
+\fbox{\begin{minipage}{0.94\linewidth}
+\small
+\textbf{Algorithm 1: DepthStream per-frame update (training-free)}\\[3pt]
+\textbf{Require:} frame $I_t$; anchored field $D_{t-1}$; last key $t_k$\\[2pt]
+1: $g_t \gets \mathrm{resize}(\mathrm{gray}(I_t))$\\
+2: $due \gets (t - t_k) \geq K$\\
+3: \textbf{if} not $due$ \textbf{and} $D_{t-1}$ exists \textbf{then}\\
+4: \quad $F_t \gets \mathrm{Flow}(g_t, g_{t-1})$
+   \hfill $\triangleright$ backward, @256\,px\\
+5: \quad $\hat{D}_t \gets \mathcal{W}(D_{t-1}, \mathrm{up}(F_t))$\\
+6: \quad \textbf{if} adaptive \textbf{and} $t - t_k \geq K_{\min}$ \textbf{then}\\
+7: \qquad $\rho_t \gets \mathrm{frac}(|\mathcal{W}(g_{t-1},F_t) - g_t| > \theta)$\\
+8: \qquad $due \gets \rho_t > \eta$
+   \hfill $\triangleright$ flow-failure trigger\\
+9: \quad \textbf{end if}\\
+10: \textbf{end if}\\
+11: \textbf{if} $due$ \textbf{then}\\
+12: \quad $D^{\phi}_t \gets \mathrm{up}_{224\to H,W}(\phi(I_t))$\\
+13: \quad $(\alpha,\beta) \gets \mathrm{LSQ}(\hat{D}_t, D^{\phi}_t)$
+   \hfill $\triangleright$ Eq.~\ref{eq:reanchor}\\
+14: \quad $D_t \gets \alpha D^{\phi}_t + \beta$;\quad $t_k \gets t$\\
+15: \textbf{else}\\
+16: \quad $D_t \gets \hat{D}_t$\\
+17: \textbf{end if}\\
+18: \textbf{return} $D_t$
+\end{minipage}}
+\caption{\textbf{DepthStream per-frame update.} Every frame takes exactly
+one of two paths: propagation through the anchored field (lines 3--10) or
+keyframe inference with affine re-anchoring (lines 11--14); the
+photometric-residual monitor (lines 6--9) promotes propagated frames to
+keyframes where flow fails. No line involves learning.}
+\label{alg:runtime}
+\end{figure}
 Fixed-cadence keyframes cannot distinguish a static scene (propagation is
 reliable indefinitely) from a fast-panning one (flow fails within a frame).
 We monitor a photometric residual on the flow-resolution gray frames,
@@ -308,13 +349,33 @@ since the last keyframe, the frame is promoted to a keyframe. The monitor
 reuses the flow already computed for propagation and costs $<0.1$\,ms.
 
 \subsection{Complexity and deployment}
+\label{sec:complexity}
 Per propagated frame the runtime performs one small-resolution flow inference
 and one full-resolution warping pass; per keyframe it adds one student
-inference. On the RTX 3060 Laptop this amounts to $6.1$\,ms per frame at
-$K{=}10$ ($1024{\times}436$) and $5.7$\,ms at $640{\times}480$, against
-$56$\,ms for a single DAv2-L frame. The entire runtime is expressible in
-standard operators (except the frozen student, for which official ONNX graphs
-exist) and exports to TensorRT and ONNX-Runtime without custom plugins.
+inference. Writing $c_m$ for the model call, $c_f$ for flow and $c_w$ for
+warping, the expected per-frame cost under fixed cadence $K$ is
+\begin{equation}
+  c(K) \;=\; \tfrac{1}{K}c_m \;+\; \big(1 - \tfrac{1}{K}\big)(c_f + c_w),
+  \label{eq:cost}
+\end{equation}
+i.e., the model cost is amortized linearly while the propagation cost is
+paid on every frame. Table~\ref{tab:components} measures the components:
+because $c_m$ at $224^2$ is dominated by Python-side preprocessing rather
+than GPU compute, amortization shifts the bottleneck to the flow term on
+every platform --- most visibly on the CPU and Jetson, where the stream is
+\emph{faster} than the GPU not despite but because of the tiny model. The
+entire runtime is expressible in standard operators (the frozen student has
+official ONNX graphs) and exports to TensorRT and ONNX-Runtime without
+custom plugins; on the Nano the same fp32 engine serves both the engine
+path and, through ONNX, any CPU-only fallback.
+
+Re-anchoring itself costs one pass over the valid pixels ($<1$\,ms at
+$1024{\times}436$ in NumPy) and its closed-form solution
+(Eq.~\ref{eq:reanchor}) needs no iteration: with centered sums,
+$\alpha = \tfrac{\sum \Delta\hat{D}\,\Delta D^{\phi}}{\sum (\Delta\hat{D})^2}$
+and $\beta = \overline{D^{\phi}} - \alpha\,\overline{\hat{D}}$, clipped to
+$\alpha \in [0.25, 4]$ to bound drift under degenerate overlaps (fewer than
+100 valid pixels fall back to the identity, keeping the stream defined).
 
 %--------------------------------------------------------------------------
 \section{Experiments}
@@ -332,8 +393,9 @@ genealogically strict: the teacher is Depth Anything V2-Large~\cite{dav2}
 \textbf{Datasets.} \emph{Sintel}~\cite{sintel}: all 23 training sequences with
 depth annotations (1{,}064 frames, $1024{\times}436$, clean pass), providing
 ground-truth depth \emph{and} forward flow. \emph{Bonn RGB-D
-Dynamic}~\cite{bonn}: three dynamic indoor sequences (balloon2, crowd2,
-kidnapping\_box2; 180 frames at $640{\times}480$) with Kinect ground truth ---
+Dynamic}~\cite{bonn}: nine dynamic indoor sequences (balloon,
+balloon\_tracking, crowd, kidnapping\_box variants and others; 540 frames
+at $640{\times}480$) with Kinect ground truth ---
 a real-sensor counterpoint to Sintel's synthetic content. RGB--depth pairs are
 matched by nearest timestamps; ground truth is capped at 500\,m (Sintel sky
 outliers reach $10^{10}$\,m) and 10\,m (Kinect range), respectively.
@@ -374,25 +436,26 @@ DepthART dense per-frame & 0.4614 & 0.1585 & 10.6\\
 DepthStream kf10 & 0.4406 & 0.1094 & 6.1\\
 \textbf{DepthStream kf10-adp} & 0.4434 & \textbf{0.1054} & 7.6\\
 \midrule
-\multicolumn{4}{c}{\emph{Bonn RGB-D} (real, 3 seq / 180 frames)}\\
+\multicolumn{4}{c}{\emph{Bonn RGB-D} (real, 9 seq / 540 frames)}\\
 Config & $\delta_1{\uparrow}$ & TAE$\downarrow$ & ms/frame$\downarrow$\\
 \midrule
-DAv2-L @518 per-frame & \textbf{0.9811} & 0.4820 & 92.5\\
-DepthART dense per-frame & 0.9655 & \textbf{0.4607} & 7.6\\
-\textbf{DepthStream kf3} & 0.9637 & 0.4773 & 6.7\\
-DepthStream kf10-adp & 0.9484 & 0.4852 & 6.3\\
+DAv2-L @518 per-frame & \textbf{0.9924} & -- & 85.6\\
+DepthART dense per-frame & 0.9866 & \textbf{0.4668} & 12.2\\
+\textbf{DepthStream kf3} & 0.9862 & 0.4752 & 7.0\\
+DepthStream kf10-adp & 0.9811 & 0.4759 & 5.8\\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \textbf{Amortization is free at $K{=}3$.} On Sintel, kf3 reproduces the
 per-frame student's $\delta_1$ exactly (0.4614 vs.\ 0.4614) while reducing
-temporal error by 15.3\% and latency by 20\%; on Bonn it keeps 99.8\% of the
-per-frame accuracy at 11\% lower latency. There is no accuracy--consistency
+temporal error by 15.3\% and latency by 20\%; on Bonn (9 sequences) it keeps
+99.96\% of the per-frame accuracy at 43\% lower latency. There is no
+accuracy--consistency
 trade-off at moderate intervals --- there is a strict improvement.
 
-\textbf{Streaming rivals the teacher.} At $1/6.7$ (Sintel) and $1/13.7$ (Bonn)
-of the teacher's latency, kf3 retains 93.6\% and 98.2\% of the teacher's
+\textbf{Streaming rivals the teacher.} At $1/6.7$ (Sintel) and $1/12.2$ (Bonn)
+of the teacher's latency, kf3 retains 93.6\% and 99.4\% of the teacher's
 $\delta_1$, and its temporal error is $1.37\times$ \emph{lower} than the
 teacher's per-frame error on Sintel (0.1343 vs.\ 0.1844). The pattern
 strengthen with adaptive scheduling: kf10-adp achieves the best temporal error
@@ -455,23 +518,29 @@ Variant & $\delta_1{\uparrow}$ & TAE$\downarrow$ & ms$\downarrow$\\
 \midrule
 dense (per-frame) & 0.4614 & 0.1585 & 10.6\\
 kf3 (default) & 0.4614 & 0.1343 & 8.4\\
-kf3 + EMA ($\lambda{=}0.6$)$^{\dagger}$ & 0.2772$^{*}$ & -- & --\\
+kf3 + EMA ($\lambda{=}0.6$) & 0.4614 & 0.1345 & 8.6\\
 kf10 (fixed) & 0.4406 & 0.1094 & 6.1\\
 kf10-adp (adaptive) & 0.4434 & 0.1054 & 7.6\\
 kf10 + fwd-GT flow & 0.4145 & 0.1282 & 6.3\\
 kf3 + hi-flow (384) & 0.4619 & 0.1354 & 9.4\\
 \bottomrule
-\multicolumn{4}{l}{\footnotesize $^{\dagger}$six-sequence protocol;
-$^{*}$0.2875 with $\lambda{=}1$ on the same subset.}\\
+\multicolumn{4}{l}{\footnotesize EMA damage is scene-dependent: on the
+ambush (dense-vegetation)}\\
+\multicolumn{4}{l}{\footnotesize subset it drops $\delta_1$ from 0.2875 to
+0.2772 ($K{=}3$).}\\
 \end{tabular}
 \end{table}
 
-\textbf{(i) Temporal EMA filtering hurts.} Replacing pure re-anchoring with an
-exponential moving average ($\lambda{=}0.6$) between propagated and fresh
-fields lowered $\delta_1$ on the six-sequence subset (0.2875 to 0.2772 at
-$K{=}3$): at every keyframe the blend re-injects $40\%$ stale content, and the
-damage compounds along the stream. Re-anchoring (Eq.~\ref{eq:reanchor})
-achieves continuity through the scale--shift alignment only.
+\textbf{(i) Temporal EMA filtering hurts --- scene-dependently.} Replacing
+pure re-anchoring with an exponential moving average ($\lambda{=}0.6$)
+between propagated and fresh fields re-injects $40\%$ stale content at every
+keyframe. On the full 23-sequence protocol the aggregate damage is mild
+(kf10-adp: 0.4429 vs.\ 0.4434), but the six-sequence subset containing the
+dense-vegetation ambush sequences shows a large drop (0.2875 to 0.2772 at
+$K{=}3$): wherever occlusion is frequent, the stale propagated content is
+wrong, and blending spreads the error. Re-anchoring (Eq.~\ref{eq:reanchor})
+achieves continuity through the scale--shift alignment alone and is robust
+by construction, so we adopt it throughout.
 
 \textbf{(ii) Flow quality is not the bottleneck.} Propagating with
 ground-truth \emph{forward} flow scores \emph{worse} than estimated backward
@@ -485,7 +554,14 @@ Fig.~\ref{fig:qual}, where residual error concentrates at motion boundaries.
 \textbf{(iii) Adaptive scheduling buys back long-interval accuracy.} At
 $K{=}10$, adaptive re-anchoring recovers $+0.021$ $\delta_1$ over fixed
 scheduling (0.4434 vs.\ 0.4406) and attains the best temporal error of all
-configs (0.1054), at $+1$\,ms.
+configs (0.1054), at $+1$\,ms. Notably, the photometric monitor is a
+\emph{dormant safety net} on our benchmarks: it fires on only 1 of 1{,}064
+Sintel frames and 0 of 540 Bonn frames at $\theta{=}0.15,\eta{=}0.30$ ---
+DIS flow explains almost all of the observed motion --- yet a single
+re-timed keyframe re-phases the cadence of its whole sequence and recovers
+$+0.003$ $\delta_1$ on average. The monitor's insurance value should grow
+on production streams with cuts, motion blur, and exposure changes, which
+our laboratory benchmarks underrepresent.
 
 \textbf{(iv) Geometric (homography) propagation is a trap.} A RANSAC
 homography decomposition --- warp by the dominant static motion, flow only on
@@ -535,6 +611,68 @@ ambush sequences), not by the streaming mechanism.}
 \label{fig:perseq}
 \end{figure}
 
+\subsection{Cadence sweep: choosing $K$}
+\label{sec:ksweep}
+Fig.~\ref{fig:ksweep} sweeps the cadence $K \in \{1,\dots,20\}$ over all 23
+Sintel sequences. Latency falls steeply and then asymptotes
+($12.4 \to 5.1$\,ms, a $2.4\times$ reduction bounded below by the flow term
+of Eq.~\ref{eq:cost}), temporal error decreases monotonically --- longer
+propagation chains are \emph{smoother} --- while accuracy degrades mildly
+and non-monotonically (0.4614 at $K{=}1$ to 0.4297 at $K{=}20$, with a
+recovery at $K{=}15$ that traces back to sequence-level variance rather
+than to a resonance effect). The knee of the consistency--latency trade-off
+sits at $K{\approx}10$, which we adopt as the default for adaptive
+scheduling; $K{=}3$ is the accuracy-preserving alternative.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{ksweep.png}
+\caption{\textbf{Cadence sweep} (Sintel, 23 seq, TRT fp16). Left: accuracy
+degrades mildly and non-monotonically with $K$. Right: temporal error
+(TAE, GT flow) decreases monotonically while latency asymptotes to the
+flow cost --- the knee sits at $K{\approx}10$.}
+\label{fig:ksweep}
+\end{figure}
+
+\subsection{Comparing temporal stability with $\tau_5$}
+\label{sec:tau5}
+Table~\ref{tab:perseqfull} lists per-sequence accuracy for all
+configurations; per-sequence variance (0.03 in ambush\_2 to 0.72 in
+market\_6) is dominated by scene content, and the streaming configurations
+track their dense counterpart within $\pm 0.02$ on 21 of 23 sequences.
+\input{perseq_table}
+\input{bonnperseq_table}
+TAE measures the magnitude of frame-to-frame drift; the propagation
+literature additionally reports $\tau_5$
+\cite{velodepth}, a per-pixel \emph{inlier rate}: depth from $t{-}1$ is
+warped to $t$ (GT flow), scale--shift aligned per pair, and a pixel counts
+as consistent when $|D_t - \widehat{D}_{t-1}| < 5\%$ of the depth. We
+implement $\tau_5$ without the ego-motion term (our runtime consumes no
+poses; the scale--shift alignment absorbs the dominant correction) and
+report it for all Sintel configurations in Table~\ref{tab:tau5}. The
+ordering matches TAE exactly, but the effect size is more readable:
+streaming lifts the share of temporally consistent pixels from 55\%
+(dense) to 73\% (kf3) and 83\% (kf10-adp) --- a $1.5\times$ improvement
+that survives the switch to the rival metric family. Per-frame DAv2-L
+scores 0.5516 under the same protocol.
+
+\begin{table}[t]
+\centering\small
+\caption{\textbf{$\tau_5$ temporal consistency}. Top: Sintel (23 seq;
+GT-flow warping). Bottom: Bonn (9 seq; estimated backward flow, identical
+across configs). Per-pair scale--shift alignment, 5\% inlier threshold;
+higher is better.}
+\label{tab:tau5}
+\begin{tabular}{lccc}
+\toprule
+Config & dense & kf3 & kf10-adp\\
+\midrule
+Sintel ($\tau_5{\uparrow}$) & 0.5516 & 0.7332 & \textbf{0.8303}\\
+Bonn ($\tau_5{\uparrow}$) & 0.8737 & 0.8786 & \textbf{0.8854}\\
+\bottomrule
+\end{tabular}
+\end{table}
+
 \subsection{Platform and backend invariance}
 Table~\ref{tab:platform} extends the evaluation across devices, from a
 2019 \$99 developer board to a laptop GPU. The CPU runs the fp32 ONNX graph
@@ -564,9 +702,11 @@ Tables~\ref{tab:main} and~\ref{tab:ablation}.
 \begin{table}[t]
 \centering\small
 \caption{\textbf{Platforms} (student backend; E2E on a $640{\times}480$
-synthetic clip, kf10, MAXN power mode). Backend invariance:
-$|\Delta\delta_1| \leq 10^{-4}$ between GPU-fp16 and CPU-fp32 on the
-Sintel protocol.}
+synthetic clip, kf10, MAXN power mode). Nano cadence sweep
+(per-frame/kf3/kf10/kf10-adp): 47.2/20.9/11.2/11.2\,ms
+= 21.2/47.9/89.6/89.6\,FPS (see also Fig.~\ref{fig:pareto}).
+Backend invariance: $|\Delta\delta_1| \leq 10^{-4}$ between GPU-fp16 and
+CPU-fp32 on the Sintel protocol.}
 \label{tab:platform}
 \begin{tabular}{llccc}
 \toprule
@@ -576,10 +716,25 @@ RTX 3060 Laptop 6GB & TensorRT 11.3 & fp16 & 1.20\,ms & $\sim$150 FPS\\
 Ryzen 7 5800H (CPU) & ORT 1.26 & fp32 & 6.95\,ms & 249 FPS\\
 Jetson Nano 4GB (2019) & TensorRT 8.2 & fp32 & 29.9\,ms & 90 FPS\\
 \bottomrule
-\multicolumn{5}{l}{\footnotesize Nano full cadence sweep (per-frame / kf3 /
-kf10 / kf10-adp):}\\
-\multicolumn{5}{l}{\footnotesize 47.2 / 20.9 / 11.2 / 11.2\,ms
-(21.2 / 47.9 / 89.6 / 89.6\,FPS); see also Fig.~\ref{fig:pareto}.}\\
+\end{tabular}
+\end{table}
+
+\begin{table}[t]
+\centering\small
+\caption{\textbf{Per-component budget} (ms; $640{\times}480$). model = one
+student call as executed by the runtime (preprocess + host--device transfer
++ engine); flow = one DIS field at 256\,px incl.\ upsampling; warp =
+full-resolution remap. At $224^2$ the Python-side preprocessing dominates
+the model call on every platform.}
+\label{tab:components}
+\begin{tabular}{lccc}
+\toprule
+Platform & model & flow & warp\\
+\midrule
+RTX 3060 Laptop (TRT fp16) & 12.4 & 2.2 & 0.8\\
+Ryzen 7 5800H (ORT fp32) & 12.1 & 2.2 & 0.7\\
+Jetson Nano (TRT fp32) & 46.6 & 7.3 & 1.0\\
+\bottomrule
 \end{tabular}
 \end{table}
 
@@ -613,11 +768,60 @@ uniformly. Dense learned-free flow is a strong propagator precisely because
 it makes no motion-model assumption.
 
 %--------------------------------------------------------------------------
+\section{Discussion}
+\label{sec:discussion}
+
+\subsection{DepthStream vs.\ learned propagation}
+Table~\ref{tab:velodepth} summarizes the contrast with the closest system.
+The two approaches are complementary rather than competing: VeloDepth
+demonstrates that learned corrections squeeze extra consistency out of a
+\emph{non-distilled} foundation base, while DepthStream shows that for
+students distilled from the judge model, the same skeleton --- keyframe,
+warp, re-anchor --- delivers a large share of the benefit with no training
+pipeline, an order of magnitude lower latency, and $7\times$ smaller
+hardware. The practical decision rule that emerges from our analysis
+(Sec.~\ref{sec:cascade}) is: \emph{if your tiny model is distilled from your
+quality reference, propagate --- do not correct; and re-anchor --- do not
+smooth.}
+
+\begin{table}[t]
+\centering\small
+\caption{\textbf{DepthStream vs.\ learned propagation} (VeloDepth numbers
+from their paper; both on 0.3--0.5\,MP inputs).}
+\label{tab:velodepth}
+\begin{tabular}{lcc}
+\toprule
+ & VeloDepth & DepthStream (ours)\\
+\midrule
+propagation module & 55\,M, trained & none\\
+training cost & 8$\times$4090, 6 days & ---\\
+base model & 409\,M (UniDepthV2) & 6\,M distilled\\
+keyframe trigger & learned gating & residual (free)\\
+hardware & RTX 3090 & RTX 3060 Laptop 6GB\\
+throughput & 26.2 FPS & 142--176 FPS\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{When does amortization stop paying?}
+Three boundaries emerged from our experiments. \emph{Occlusion density}:
+propagation error concentrates at disocclusions (Fig.~\ref{fig:flicker});
+adaptive scheduling hides the symptom at scene level but a per-pixel mask
+with fallback inference is the natural next step. \emph{Extreme intervals}:
+beyond $K{\approx}15$ the accumulation curve (Fig.~\ref{fig:accum}) falls
+below the dense baseline, so the cadence should stay within the range where
+decay is flatter than the model's own frame-to-frame variance ---
+empirically $K{\leq}10$ here. \emph{Model mismatch}: if the runtime's
+student is \emph{not} distilled from the referee model, a disagreement
+space re-opens and selective correction (Sec.~\ref{sec:cascade}) or learned
+propagation~\cite{velodepth} becomes rational again.
+
+%--------------------------------------------------------------------------
 \section{Limitations}
 \label{sec:limits}
 (i) Flow propagation fails at disocclusions and large rotations; the adaptive
 scheduler masks the symptom (early re-anchoring) but does not model
-occlusion explicitly. (ii) Our evaluation covers one synthetic and three real
+occlusion explicitly. (ii) Our evaluation covers one synthetic and nine real
 sequences; extending Bonn to all published sequences and adding TUM would
 strengthen the real-data claim. (iii) Power consumption is not yet reported
 for the platform table, and GPU-side evaluation uses one consumer laptop GPU;
@@ -661,19 +865,21 @@ Bonn are used under their respective research licenses.
 \emph{ACM Multimedia}, 2026. arXiv:2607.17099.
 \bibitem{dav2} L.~Yang et al.
 ``Depth Anything V2,'' \emph{NeurIPS}, 2024. arXiv:2406.09414.
-\bibitem{velodepth} (authors) ``Video Depth Propagation (VeloDepth),''
-\emph{arXiv:2512.10725}, 2025.
+\bibitem{velodepth} L.~Piccinelli et al. ``Video Depth Propagation
+(VeloDepth),'' \emph{3DV}, 2026. arXiv:2512.10725.
 \bibitem{nvds} W.~Wang et al. ``Neural Video Depth Stabilizer,''
 \emph{ICCV}, 2023.
 \bibitem{depthcrafter} W.~Cao et al. ``DepthCrafter: Generating Consistent
 Long Depth Sequences for Open-world Videos,'' \emph{CVPR}, 2025.
-\bibitem{chronodepth} (authors) ``ChronoDepth: Learning Temporal Consistent
-Video Depth,'' \emph{ICLR}, 2025.
-\bibitem{vda} (authors) ``Video Depth Anything,'' \emph{arXiv}, 2025.
+\bibitem{chronodepth} J.~Shao et al. ``Learning Temporally Consistent Video
+Depth from Video Diffusion Models'' (ChronoDepth), \emph{CVPR}, 2025.
+\bibitem{vda} S.~Chen et al. ``Video Depth Anything: Consistent Depth
+Estimation for Super-Long Videos,'' \emph{CVPR}, 2025. arXiv:2501.12375.
 \bibitem{cvd} J.~Kopf et al. ``Consistent Video Depth Estimation,''
 \emph{ACM TOG (SIGGRAPH)}, 2021.
-\bibitem{teccvideodepth} (authors) ``Enforcing Temporal Consistency in Video
-Depth Estimation,'' \emph{ICCV Workshops}, 2021.
+\bibitem{teccvideodepth} S.~Li, Y.~Luo, Y.~Mao et al. ``Enforcing Temporal
+Consistency in Video Depth Estimation'' (TCMonoDepth), \emph{ICCV Workshops},
+2021.
 \bibitem{midas} R.~Ranftl et al. ``Towards Robust Monocular Depth Estimation:
 Mixing Datasets for Zero-shot Cross-dataset Transfer,'' \emph{IEEE TPAMI},
 2022.
@@ -693,17 +899,17 @@ Estimation on Embedded Systems,'' \emph{arXiv:2308.10569}, 2023.
 Segmentation with an Atkinson-Shiffrin Memory Model,'' \emph{ECCV}, 2022.
 \bibitem{specdec} Y.~Leviathan et al. ``Fast Inference from Transformers via
 Speculative Decoding,'' \emph{ICML}, 2023.
-\bibitem{practicalcvd} (authors) ``Towards Practical Consistent Video Depth
-Estimation,'' \emph{ACM Multimedia}, 2023.
+\bibitem{practicalcvd} P.~Li, Y.~Ding, L.~Li, J.~Guan, and Z.~Li. ``Towards
+Practical Consistent Video Depth Estimation,'' \emph{ACM ICMR}, 2023.
 \bibitem{metric3d} W.~Yin et al. ``Metric3D v2: Geometric Foundation Model,''
 \emph{IEEE TPAMI}, 2024.
 \bibitem{unidepth} L.~Piccinelli et al. ``UniDepth: Universal Monocular
 Metric Depth Estimation,'' \emph{CVPR}, 2024.
 \bibitem{fastdepth} D.~Wofk et al. ``FastDepth: Efficient Monocular Depth
 Estimation for Embedded Devices,'' \emph{ICRA}, 2019.
-\bibitem{patchfusion} Z.~Li et al. ``PatchFusion: An End-to-End
-Tile-Based Framework for High-Resolution Depth Matting'' / depth, \emph{CVPR},
-2024.
+\bibitem{patchfusion} Z.~Li et al. ``PatchFusion: An End-to-End Tile-Based
+Framework for High-Resolution Monocular Metric Depth Estimation,''
+\emph{CVPR}, 2024.
 \bibitem{disflow} T.~Kroeger et al. ``Fast Optical Flow using Dense Inverse
 Search,'' \emph{ECCV}, 2016.
 \bibitem{farneback} G.~Farneb\"ack. ``Two-Frame Motion Estimation Based on

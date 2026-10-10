@@ -6,7 +6,8 @@ import urllib.request
 
 BASE = "/home/cq/depthart_test/bonn"
 URL = "https://www.ipb.uni-bonn.de/html/projects/rgbd_dynamic2019/rgbd_bonn_{}.zip"
-SEQS = ["balloon2", "kidnapping_box2", "crowd2"]
+SEQS = ["balloon", "balloon_tracking", "balloon_tracking2",
+        "crowd", "crowd3", "kidnapping_box"]
 NCONN = 8
 
 

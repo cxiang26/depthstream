@@ -110,6 +110,36 @@ if tiles:
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (255, 255, 255), 1)
     cv2.imwrite(f"{FIG}/qualitative.png", canvas)
 
+
+# ---------- Fig: keyframe cadence sweep (from benchmarks/eval_ksweep.json) ----------
+import json as _json
+import os as _os
+_ks_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "benchmarks", "eval_ksweep.json")
+if _os.path.exists(_ks_path):
+    ks = _json.load(open(_ks_path))
+    Ks = sorted(int(k) for k in ks)
+    d1s = [ks[str(k)]["delta1"] for k in Ks]
+    taes = [ks[str(k)]["tae_rel"] for k in Ks]
+    mss = [ks[str(k)]["ms_per_frame"] for k in Ks]
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(9, 3.4))
+    ax1.plot(Ks, d1s, marker="o", ms=5, color="tab:blue")
+    ax1.set_xlabel("keyframe interval K")
+    ax1.set_ylabel("delta1 (aligned)")
+    ax1.set_title("Accuracy vs cadence")
+    ax1.grid(alpha=0.3)
+    ax2.plot(Ks, taes, marker="s", ms=5, color="tab:red", label="TAE (GT flow)")
+    ax2.set_xlabel("keyframe interval K")
+    ax2.set_ylabel("TAE", color="tab:red")
+    ax2.grid(alpha=0.3)
+    ax3 = ax2.twinx()
+    ax3.plot(Ks, mss, marker="^", ms=5, color="tab:green", label="ms/frame")
+    ax3.set_ylabel("ms/frame", color="tab:green")
+    ax2.set_title("Consistency & latency vs cadence")
+    fig.tight_layout()
+    fig.savefig(f"{FIG}/ksweep.png", dpi=150)
+    plt.close(fig)
+    print("ksweep figure written")
+
 print("figures saved to", FIG)
 for f in sorted(os.listdir(FIG)):
     print(" -", f)

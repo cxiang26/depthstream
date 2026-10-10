@@ -1,0 +1,26 @@
+{
+ "dense": {
+  "delta1": 0.4614,
+  "tae_rel": 0.1585,
+  "ms_per_frame": 13.98,
+  "n_seqs": 23
+ },
+ "kf3": {
+  "delta1": 0.4614,
+  "tae_rel": 0.1343,
+  "ms_per_frame": 8.41,
+  "n_seqs": 23
+ },
+ "kf10": {
+  "delta1": 0.4407,
+  "tae_rel": 0.1093,
+  "ms_per_frame": 5.92,
+  "n_seqs": 23
+ },
+ "kf10-adp": {
+  "delta1": 0.4429,
+  "tae_rel": 0.1061,
+  "ms_per_frame": 7.06,
+  "n_seqs": 23
+ }
+}

@@ -1,0 +1,35 @@
+{
+ "dense": {
+  "balloon": 0.9999,
+  "balloon2": 0.9368,
+  "balloon_tracking": 0.9954,
+  "balloon_tracking2": 0.9916,
+  "crowd": 1.0,
+  "crowd2": 0.9686,
+  "crowd3": 0.9999,
+  "kidnapping_box": 0.9964,
+  "kidnapping_box2": 0.9911
+ },
+ "kf3": {
+  "balloon": 1.0,
+  "balloon2": 0.9378,
+  "balloon_tracking": 0.9958,
+  "balloon_tracking2": 0.9918,
+  "crowd": 1.0,
+  "crowd2": 0.9623,
+  "crowd3": 0.9999,
+  "kidnapping_box": 0.9967,
+  "kidnapping_box2": 0.991
+ },
+ "kf10-adp": {
+  "balloon": 1.0,
+  "balloon2": 0.9105,
+  "balloon_tracking": 0.9958,
+  "balloon_tracking2": 0.9926,
+  "crowd": 1.0,
+  "crowd2": 0.9434,
+  "crowd3": 0.9999,
+  "kidnapping_box": 0.996,
+  "kidnapping_box2": 0.9914
+ }
+}

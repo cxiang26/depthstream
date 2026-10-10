@@ -1,0 +1,42 @@
+{
+ "1": {
+  "delta1": 0.4614,
+  "tae_rel": 0.1585,
+  "ms_per_frame": 12.36
+ },
+ "2": {
+  "delta1": 0.4588,
+  "tae_rel": 0.1438,
+  "ms_per_frame": 9.54
+ },
+ "3": {
+  "delta1": 0.4614,
+  "tae_rel": 0.1343,
+  "ms_per_frame": 7.78
+ },
+ "5": {
+  "delta1": 0.4521,
+  "tae_rel": 0.1249,
+  "ms_per_frame": 6.52
+ },
+ "8": {
+  "delta1": 0.4506,
+  "tae_rel": 0.1183,
+  "ms_per_frame": 5.83
+ },
+ "10": {
+  "delta1": 0.4406,
+  "tae_rel": 0.1094,
+  "ms_per_frame": 5.35
+ },
+ "15": {
+  "delta1": 0.4492,
+  "tae_rel": 0.109,
+  "ms_per_frame": 5.19
+ },
+ "20": {
+  "delta1": 0.4297,
+  "tae_rel": 0.1039,
+  "ms_per_frame": 5.06
+ }
+}

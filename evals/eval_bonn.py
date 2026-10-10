@@ -54,6 +54,7 @@ def main():
     ap.add_argument("--out-dir", default="results")
     ap.add_argument("--student-onnx", default="")
     ap.add_argument("--backend", default="ort", choices=["ort", "trt"])
+    ap.add_argument("--student-engine", default="")
     ap.add_argument("--frames", type=int, default=60)
     args = ap.parse_args()
 
@@ -66,6 +67,7 @@ def main():
     calc = make_flow_backend("dis")
     names = ["dense", "kf3", "kf10-adp"]
     acc = {n: {"d1": [], "tae": [], "ms": []} for n in names}
+    per_seq = {n: {} for n in names}
 
     for seq, _ in bonn_io.list_seqs(args.bonn_root):
         imgs, gts = bonn_io.load_seq(seq, args.frames, root=args.bonn_root)
@@ -103,6 +105,7 @@ def main():
             acc[name]["d1"].append(np.mean(d1s))
             acc[name]["tae"].append(np.mean(taes))
             acc[name]["ms"].append(ms)
+            per_seq.setdefault(name, {})[seq] = round(float(np.mean(d1s)), 4)
 
     table = {}
     for name, v in acc.items():
@@ -117,6 +120,8 @@ def main():
     os.makedirs(args.out_dir, exist_ok=True)
     with open(os.path.join(args.out_dir, "eval_bonn_result.json"), "w") as f:
         json.dump(table, f, indent=1)
+    with open(os.path.join(args.out_dir, "eval_bonn_perseq.json"), "w") as f:
+        json.dump(per_seq, f, indent=1)
     print(json.dumps(table, indent=1))
 
 

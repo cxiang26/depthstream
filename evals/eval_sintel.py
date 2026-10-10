@@ -89,6 +89,8 @@ def main():
     ap.add_argument("--max-seqs", type=int, default=23)
     ap.add_argument("--frames", type=int, default=50)
     ap.add_argument("--skip-dav2", action="store_true")
+    ap.add_argument("--ema", type=float, default=1.0)
+    ap.add_argument("--tag", default="")
     ap.add_argument("--dav2-repo", default="")
     ap.add_argument("--dav2-weights", default="")
     args = ap.parse_args()
@@ -104,6 +106,7 @@ def main():
 
     names = ["dense", "kf3", "kf10", "kf10-adp"]
     acc = {n: {"d1": [], "tae": [], "ms": []} for n in names}
+    per_seq = {n: {} for n in names}
     if not args.skip_dav2:
         acc["dav2l518"] = {"d1": [], "tae": [], "ms": []}
         dav2 = DAv2Baseline(args.dav2_repo, args.dav2_weights)
@@ -119,7 +122,7 @@ def main():
         for name in names:
             kf = int("".join(c for c in name if c.isdigit()) or 1)
             st = DepthStream(model, keyframe=kf, flow="dis", flow_width=256,
-                             ema=1.0, adaptive=name.endswith("adp"))
+                             ema=args.ema, adaptive=name.endswith("adp"))
             outs = []
             t0 = time.perf_counter()
             for im in imgs:
@@ -138,6 +141,7 @@ def main():
             acc[name]["d1"].append(np.mean(d1s))
             acc[name]["tae"].append(np.mean(taes))
             acc[name]["ms"].append(ms)
+            per_seq.setdefault(name, {})[seq] = round(float(np.mean(d1s)), 4)
 
         if not args.skip_dav2:
             t0 = time.perf_counter()
@@ -167,8 +171,11 @@ def main():
             "n_seqs": len(v["d1"]),
         }
     os.makedirs(args.out_dir, exist_ok=True)
-    with open(os.path.join(args.out_dir, "eval_sintel_result.json"), "w") as f:
+    suffix = ("_" + args.tag) if args.tag else ("_ema" + str(args.ema) if args.ema != 1.0 else "")
+    with open(os.path.join(args.out_dir, f"eval_sintel_result{suffix}.json"), "w") as f:
         json.dump(table, f, indent=1)
+    with open(os.path.join(args.out_dir, f"eval_sintel_perseq{suffix}.json"), "w") as f:
+        json.dump(per_seq, f, indent=1)
     print(json.dumps(table, indent=1))
 
 
