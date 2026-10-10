@@ -28,3 +28,6 @@ page*.png
 # tooling
 node_modules/
 .zcode/
+
+# python packaging junk
+*.egg-info/
