@@ -76,13 +76,15 @@ and ONNX. This paper asks the natural next question: \emph{on a model whose
 spatial efficiency is already squeezed dry, where does any further
 efficiency come from?}
 
-We first probed the model axis itself, and found it dry. Post-training INT8
-quantization --- the standard next squeeze --- \emph{backfires} on this
-architecture: dynamic quantization runs $12$--$20\times$ slower than fp32
-because quantized convolutions fall back to reference kernels
-(Sec.~\ref{sec:platform}). Pruning further costs accuracy that the latency
-budget cannot repurchase at $224^2$ input. The spatial axis of a distilled
-student, in other words, has no free lunch left.
+The model axis, however, offers no further lunch to grab. The student ships
+at a point its authors already swept exhaustively --- S/B/L capacities,
+$224/448$ inputs, a pruned backbone with a fused decoder --- so it sits on
+the accuracy--latency Pareto frontier of its own family, and the frontier's
+price is steep: every step down in capacity or resolution trades accuracy
+for milliseconds at a rate the $224^2$ latency budget cannot repurchase.
+Re-compressing a finished compression product would re-run a sweep its
+authors have already made; the spatial axis of a distilled student, in
+other words, is someone else's completed work.
 
 The efficiency that remains lives in the \emph{time} dimension, and it is
 guarded by a simple observation: scene geometry is a slow variable. Between
@@ -679,10 +681,7 @@ ambush sequences), not by the streaming mechanism.}
 \label{sec:platform}
 Table~\ref{tab:platform} extends the evaluation across devices, from a
 2019 \$99 developer board to a laptop GPU. The CPU runs the fp32 ONNX graph
-(4 threads); INT8 dynamic quantization is counterproductive for this
-convolutional model (82--144\,ms, a $12$--$20\times$ slowdown, because
-dynamic quantization falls back to slow reference kernels), though it
-shrinks the artifact to 6\,MB. Three claims matter for deployment:
+with 4 threads. Three claims matter for deployment:
 (i)~\emph{accuracy is backend-invariant} --- over all configurations the
 fp32-CPU and fp16-GPU predictions agree to $\delta_1 \leq 10^{-4}$;
 (ii)~\emph{amortization flips the CPU calculus} --- with the student's cost
