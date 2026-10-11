@@ -22,7 +22,7 @@ C_ADPT = "#f6d4dd"
 C_ADPT_E = "#c2456b"
 
 
-def box(x, y, w, h, text, fc, ec, fs=9, ls="-", tc="#222222", bold=False):
+def box(x, y, w, h, text, fc, ec, fs=10.5, ls="-", tc="#222222", bold=False):
     ax.add_patch(FancyBboxPatch((x, y), w, h,
                                 boxstyle="round,pad=0.35,rounding_size=0.9",
                                 fc=fc, ec=ec, lw=1.4, ls=ls, zorder=2))
@@ -32,7 +32,7 @@ def box(x, y, w, h, text, fc, ec, fs=9, ls="-", tc="#222222", bold=False):
 
 
 def arrow(x1, y1, x2, y2, color="#555555", ls="-", lw=1.6, label=None,
-          lx=0, ly=0, fs=8.5,Mut=None):
+          lx=0, ly=0, fs=9.5,Mut=None):
     ax.add_patch(FancyArrowPatch((x1, y1), (x2, y2), arrowstyle="-|>",
                                  mutation_scale=16, color=color, lw=lw,
                                  linestyle=ls, zorder=1))
@@ -43,31 +43,31 @@ def arrow(x1, y1, x2, y2, color="#555555", ls="-", lw=1.6, label=None,
 
 
 # ---------------- boxes ----------------
-box(1, 27, 11, 8, "frame $I_t$\n(video)", C_GRAY, C_GRAY_E, fs=9.5)
+box(1, 27, 11, 8, "frame $I_t$\n(video)", C_GRAY, C_GRAY_E, fs=11)
 
 box(16, 25, 13, 12, "$t - t_k \\geq K$ ?\n(adaptive:\nresidual trigger)",
-    "#fff7e6", "#c9971d", fs=9)
+    "#fff7e6", "#c9971d", fs=10.5)
 
 box(34, 42, 22, 10, "frozen student $\\phi$ (6.05M)\nDepthART MNv4-slim-SPF\nTensorRT fp16 @ 224$^2$",
-    C_KEY, C_KEY_E, fs=9)
-box(60, 44, 13, 7.5, "bilinear $\\uparrow$\n224$^2$ $\\to$ full res", C_KEY, C_KEY_E, fs=9)
+    C_KEY, C_KEY_E, fs=10.5)
+box(60, 44, 13, 7.5, "bilinear $\\uparrow$\n224$^2$ $\\to$ full res", C_KEY, C_KEY_E, fs=10.5)
 
 box(34, 8, 18, 10, "DIS backward flow\n$F_t$ (est., @256)\n$F_t$: $I_t \\to I_{t-1}$",
-    C_PROP, C_PROP_E, fs=9)
+    C_PROP, C_PROP_E, fs=10.5)
 box(56, 8, 15, 10, "backward warp\n$\\hat{D}_t = \\mathcal{W}(D_{t-1}, F_t)$",
-    C_PROP, C_PROP_E, fs=9)
+    C_PROP, C_PROP_E, fs=10.5)
 
 box(75, 25, 16, 12, "affine re-anchor\n$(\\alpha,\\beta)=\\arg\\min\\,"
     "\\|\\alpha\\hat{D}_t+\\beta-D_t^{\\phi}\\|^2$\nfuse $D_t \\leftarrow \\alpha D_t^{\\phi}+\\beta$",
-    C_FUSE, C_FUSE_E, fs=8.6)
+    C_FUSE, C_FUSE_E, fs=9.8)
 
-box(94, 26, 9, 10, "output\n$D_t$\n(full res)", C_FUSE, C_FUSE_E, fs=9, bold=True)
+box(94, 26, 9, 10, "output\n$D_t$\n(full res)", C_FUSE, C_FUSE_E, fs=10.5, bold=True)
 
-box(75, 8, 16, 8, "previous depth\n$D_{t-1}$ (feedback)", C_GRAY, C_GRAY_E, fs=9)
+box(75, 8, 16, 8, "previous depth\n$D_{t-1}$ (feedback)", C_GRAY, C_GRAY_E, fs=10)
 
 box(33, -4, 26, 7, "photometric residual monitor\n"
     "$\\|\\mathcal{W}(I_{t-1},F_t)-I_t\\|>\\theta$ px-frac $>\\eta$",
-    C_ADPT, C_ADPT_E, fs=8.6, ls="--")
+    C_ADPT, C_ADPT_E, fs=9.8, ls="--")
 
 # ---------------- arrows ----------------
 arrow(12, 31, 16, 31)
@@ -85,19 +85,19 @@ arrow(46, 3, 25, 24, color=C_ADPT_E, ls="--", lw=1.5, label="trigger", lx=-1, ly
 
 # path labels
 ax.text(41, 56, "keyframe path (model inference, every $K$ frames)",
-        fontsize=9.5, color=C_KEY_E, ha="left", fontweight="bold")
+        fontsize=11, color=C_KEY_E, ha="left", fontweight="bold")
 ax.text(34, 21, "propagation path (in-between frames)",
-        fontsize=9.5, color=C_PROP_E, ha="left", fontweight="bold")
+        fontsize=11, color=C_PROP_E, ha="left", fontweight="bold")
 
 # legend / footer
 ax.text(1, 59, "DepthStream: training-free amortized depth streaming "
-        "(no learned propagation components)", fontsize=11,
+        "(no learned propagation components)", fontsize=12.5,
         fontweight="bold", color="#333333")
 ax.text(1, -7.5,
         "all components are training-free and deployable (TensorRT / ONNX Runtime); "
         "color: blue = model path, orange = propagation, green = fusion, "
         "pink dashed = adaptive re-anchoring",
-        fontsize=8.5, color="#666666")
+        fontsize=9.5, color="#666666")
 
 plt.tight_layout()
 fig.savefig("/home/cq/depthart_test/paper_figs/framework.png", dpi=300,

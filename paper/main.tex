@@ -156,23 +156,30 @@ limitations.
 \label{sec:related}
 
 \subsection{Single-image depth estimation: from relative to metric}
-MiDaS~\cite{midas} established zero-shot \emph{relative} depth by training on
-mixed datasets, and DPT~\cite{dpt} supplied the dense transformer decoder used
-by most successors. Depth Anything v1/v2~\cite{da1,dav2} scaled the recipe
-with 62\,M unlabeled images and became the de-facto open teacher; DAv2-L is
-the teacher in all our comparisons. A parallel line makes depth
-\emph{metric}: ZoeDepth~\cite{zoedepth} combines relative backbone with
-metric bins; Metric3D v2~\cite{metric3d} conditions a canonical-camera
-transform on intrinsics; UniDepth~\cite{unidepth} predicts camera rays and
-intrinsics jointly. Diffusion models recast depth as generative translation
-(Marigold~\cite{marigold}, DepthFM~\cite{depthfm}) at seconds-per-frame cost.
-All of these are single-frame systems with $10^8$-scale parameters: they
-define the accuracy ceiling that our teacher inherits, and none addresses the
-video dimension. DepthStream is deliberately agnostic to this line --- any
-exportable per-frame model can be dropped into the runtime.
+Cross-dataset generalization, once the central obstacle of monocular depth,
+is now a solved enough problem that the open questions have moved elsewhere:
+to metric grounding and to camera awareness. MiDaS~\cite{midas} established
+zero-shot \emph{relative} depth by training on mixed datasets, and
+DPT~\cite{dpt} supplied the dense transformer decoder used by most
+successors; Depth Anything v1/v2~\cite{da1,dav2} scaled the recipe with
+62\,M unlabeled images and became the de-facto open teacher --- DAv2-L is
+the teacher in all our comparisons. Metric grounding arrived along two
+routes: ZoeDepth~\cite{zoedepth} combines a relative backbone with metric
+bins, Metric3D v2~\cite{metric3d} conditions a canonical-camera transform
+on intrinsics, and UniDepth~\cite{unidepth} predicts camera rays and
+intrinsics jointly; diffusion models recast depth as generative translation
+(Marigold~\cite{marigold}, DepthFM~\cite{depthfm}) at seconds-per-frame
+cost. Two properties of this line matter here. All of it is
+\emph{single-frame}: the temporal redundancy of video is invisible to its
+training objective, which is exactly the redundancy a stream can exploit.
+And its parameter count ($10^8$ scale) is inherited by whatever consumes
+it: these models define the accuracy ceiling that our teacher --- and hence
+our student --- operates under. DepthStream is deliberately agnostic to
+this line: any exportable per-frame model can be dropped into the runtime.
 
 \subsection{Lightweight depth models and edge deployment}
-A separate line compresses depth models for embedded inference.
+The same distillation logic powers a separate line that compresses depth
+models for embedded inference.
 FastDepth~\cite{fastdepth} paired a mobile encoder with sparse-to-dense
 decoding for Jetson-class GPUs; RT-MonoDepth~\cite{rtmonodepth} redesigns
 encoder--decoder architectures for embedded latency; quantization and
@@ -181,30 +188,34 @@ defines the \emph{distilled} frontier for tiny models: it identifies two
 capacity-driven bottlenecks of naive compression (dataset-bias overfitting
 and unstable metric adaptation) and releases a deployment-ready family ---
 including our student, the MobileNetV4-M-slim-SPF variant with pure
-standard operators, TensorRT and ONNX graphs. All of these works are
-strictly per-frame: they optimize \emph{how fast one frame can be
-processed}, not how a stream behaves. DepthStream is complementary: it adds
-the temporal dimension to any exportable per-frame model at negative
+standard operators, TensorRT and ONNX graphs. These works treat the model
+as the finished artifact and optimize a single quantity --- the latency of
+one frame --- so their cost scales linearly with frame rate and their
+outputs remain temporally uncalibrated. DepthStream is complementary: it
+adds the temporal dimension to any exportable per-frame model at negative
 latency cost, and our backend-invariance evaluation
 (Sec.~\ref{sec:exp}) extends their deployment story to CPU-only devices.
 
 \subsection{Temporally consistent video depth}
-Closing the temporal gap of per-frame depth has been attacked in three
-regimes. \emph{Post hoc smoothing} applies optical-flow consistency losses or
-filters to independently predicted frames~\cite{teccvideodepth}.
-\emph{Per-video optimization} jointly solves depth, camera motion, and
-learned depth residuals over a whole clip~\cite{cvd}, and practical variants
-reduce the cost for streaming capture~\cite{practicalcvd}; these attain
-strong consistency but need the entire clip and minutes of optimization.
+Every attempt to close the temporal gap pays somewhere: in inference-time
+compute, in optimization time, or in training time. \emph{Post hoc
+smoothing} applies optical-flow consistency losses or filters to
+independently predicted frames~\cite{teccvideodepth} --- cheap, but it
+attenuates the jitter without knowing which parts of the frame-to-frame
+difference are drift and which are real motion. \emph{Per-video
+optimization} jointly solves depth, camera motion, and learned depth
+residuals over a whole clip~\cite{cvd}, and practical variants reduce the
+cost for streaming capture~\cite{practicalcvd}; these attain strong
+consistency but need the entire clip and minutes of optimization.
 \emph{Learned video depth models} internalize temporal reasoning: NVDS
 stabilizes arbitrary per-frame models with a sequence-to-sequence
-network~\cite{nvds}; ChronoDepth~\cite{chronodepth} and DepthCrafter~\cite{depthcrafter}
-use diffusion backbones for open-world long sequences; Video Depth
-Anything~\cite{vda} distills a video-depth foundation for hour-long input.
-All require training on large video corpora --- from GPU-days to
-diffusion-scale --- and most target offline or flagship-GPU inference.
-DepthStream requires no training at all: it is a runtime, not a model, and
-any of the above can serve as its student if exportable.
+network~\cite{nvds}; ChronoDepth~\cite{chronodepth} and
+DepthCrafter~\cite{depthcrafter} use diffusion backbones for open-world
+long sequences; Video Depth Anything~\cite{vda} distills a video-depth
+foundation for hour-long input. What none of these regimes separates is the
+affine component of the inconsistency --- the part that costs nothing to
+fix at runtime. DepthStream requires no training at all: it is a runtime,
+not a model, and any of the above can serve as its student if exportable.
 
 \subsection{Propagation and amortized inference in dense prediction}
 Reusing per-frame computation across frames is a classic amortization
@@ -473,16 +484,23 @@ DepthStream kf10-adp & 0.9811 & 0.4759 & 5.8\\
 per-frame student's $\delta_1$ exactly (0.4614 vs.\ 0.4614) while reducing
 temporal error by 15.3\% and latency by 20\%; on Bonn (9 sequences) it keeps
 99.96\% of the per-frame accuracy at 43\% lower latency. There is no
-accuracy--consistency
-trade-off at moderate intervals --- there is a strict improvement.
+accuracy--consistency trade-off at moderate intervals --- there is a strict
+improvement. The identical accuracy is itself informative: it is the
+empirical signature that transport error is affine-absorbed at this cadence,
+so streaming alters the temporal spectrum of the output without touching
+its spatial content --- precisely the separation that
+Eq.~\ref{eq:decomp} assumes.
 
 \textbf{Streaming rivals the teacher.} At $1/6.7$ (Sintel) and $1/12.2$ (Bonn)
 of the teacher's latency, kf3 retains 93.6\% and 99.4\% of the teacher's
 $\delta_1$, and its temporal error is $1.37\times$ \emph{lower} than the
 teacher's per-frame error on Sintel (0.1343 vs.\ 0.1844). The pattern
-strengthen with adaptive scheduling: kf10-adp achieves the best temporal error
+strengthens with adaptive scheduling: kf10-adp achieves the best temporal error
 of all configurations (0.1054, $1.75\times$ better than the teacher) at
-$1/7.4$ of its cost.
+$1/7.4$ of its cost. That a stream of one model is more stable than a
+second, stronger model queried per frame is worth pausing on: temporal
+error is not a function of model quality alone, and per-frame inference
+does not optimize it at all.
 
 \textbf{Propagation decay is shallow.} Fig.~\ref{fig:accum} plots
 $\delta_1$ against distance from the last keyframe: kf10-adp decays only
@@ -538,11 +556,13 @@ as consistent when $|D_t - \widehat{D}_{t-1}| < 5\%$ of the depth. We
 implement $\tau_5$ without the ego-motion term (our runtime consumes no
 poses; the scale--shift alignment absorbs the dominant correction) and
 report it for all Sintel configurations in Table~\ref{tab:tau5}. The
-ordering matches TAE exactly, but the effect size is more readable:
-streaming lifts the share of temporally consistent pixels from 55\%
-(dense) to 73\% (kf3) and 83\% (kf10-adp) --- a $1.5\times$ improvement
-that survives the switch to the rival metric family. Per-frame DAv2-L
-scores 0.5516 under the same protocol.
+ordering matches TAE exactly, but the effect size is more readable and
+speaks directly to consumers of depth: under per-frame inference fewer
+than six pixels in ten agree with their transported predecessors --- a
+video-depth stream that a tracking or fusion stage can rely on --- whereas
+streaming raises that to seven in ten at $K{=}3$ and beyond eight in ten at
+$K{=}10$, a $1.5\times$ improvement that survives the switch to the rival
+metric family. Per-frame DAv2-L scores 0.5516 under the same protocol.
 
 \begin{table}[t]
 \centering\small
