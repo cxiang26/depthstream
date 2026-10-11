@@ -1,0 +1,27 @@
+\BOOKMARK [1][-]{section.1}{引言}{}% 1
+\BOOKMARK [1][-]{section.2}{相关工作}{}% 2
+\BOOKMARK [2][-]{subsection.2.1}{单帧深度估计：从相对到度量}{section.2}% 3
+\BOOKMARK [2][-]{subsection.2.2}{轻量深度模型与边缘部署}{section.2}% 4
+\BOOKMARK [2][-]{subsection.2.3}{时序一致的视频深度}{section.2}% 5
+\BOOKMARK [2][-]{subsection.2.4}{稠密预测中的传播与摊销推理}{section.2}% 6
+\BOOKMARK [1][-]{section.3}{方法}{}% 7
+\BOOKMARK [2][-]{subsection.3.1}{设定与记号}{section.3}% 8
+\BOOKMARK [2][-]{subsection.3.2}{摊销调度}{section.3}% 9
+\BOOKMARK [2][-]{subsection.3.3}{基于光流的深度传播}{section.3}% 10
+\BOOKMARK [2][-]{subsection.3.4}{仿射重锚定}{section.3}% 11
+\BOOKMARK [2][-]{subsection.3.5}{光度残差自适应调度}{section.3}% 12
+\BOOKMARK [2][-]{subsection.3.6}{复杂度与部署}{section.3}% 13
+\BOOKMARK [1][-]{section.4}{实验}{}% 14
+\BOOKMARK [2][-]{subsection.4.1}{设置}{section.4}% 15
+\BOOKMARK [2][-]{subsection.4.2}{K=3 的免费午餐：严格占优}{section.4}% 16
+\BOOKMARK [2][-]{subsection.4.3}{时间稳定性：以 5 复检}{section.4}% 17
+\BOOKMARK [2][-]{subsection.4.4}{午餐在哪里结束：节奏边界}{section.4}% 18
+\BOOKMARK [2][-]{subsection.4.5}{午餐为何免费：机制}{section.4}% 19
+\BOOKMARK [2][-]{subsection.4.6}{购买力：平台与后端不变性}{section.4}% 20
+\BOOKMARK [2][-]{subsection.4.7}{分析：选择性精化何时划算？}{section.4}% 21
+\BOOKMARK [2][-]{subsection.4.8}{负结果：基于单应的几何传播}{section.4}% 22
+\BOOKMARK [1][-]{section.5}{讨论}{}% 23
+\BOOKMARK [2][-]{subsection.5.1}{DepthStream vs. 学习式传播}{section.5}% 24
+\BOOKMARK [2][-]{subsection.5.2}{摊销何时停止划算？}{section.5}% 25
+\BOOKMARK [1][-]{section.6}{局限}{}% 26
+\BOOKMARK [1][-]{section.7}{结论}{}% 27
