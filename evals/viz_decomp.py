@@ -24,7 +24,8 @@ import sintel_io  # noqa: E402
 ROOT = "/home/cq/depthart_test"
 SEQ = ("alley", "alley_1")
 N = 30
-K = 10
+K = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+SUFFIX = sys.argv[2] if len(sys.argv) > 2 else ""
 OUT = "/mnt/c/Users/canqunxiang/ZCodeProject/depthstream-paper/paper/figs"
 BENCH = "/mnt/c/Users/canqunxiang/ZCodeProject/depthstream-paper/benchmarks"
 
@@ -106,7 +107,7 @@ def heat(e, vmax=0.5):
 
 fig = plt.figure(figsize=(12, 6.2))
 gs = fig.add_gridspec(2, 3, height_ratios=[1.35, 1])
-sample_ages = [0, 5, 9]
+sample_ages = [0, max(1, K // 3), K - 1]
 for j, age in enumerate(sample_ages):
     t = min(age, N - 1)
     ax = fig.add_subplot(gs[0, j])
@@ -116,7 +117,7 @@ for j, age in enumerate(sample_ages):
 ax = fig.add_subplot(gs[1, :])
 ax.plot(range(N), em_t, label="model error $\\epsilon_m$ (per-frame)", color="tab:blue")
 ax.plot(range(N), ew_t, label="transport error $\\epsilon_w$", color="tab:orange")
-ax.plot(range(N), es_t, label="stream error (kf10)", color="tab:green", lw=2)
+ax.plot(range(N), es_t, label=f"stream error (K={K})", color="tab:green", lw=2)
 for k in range(K, N, K):
     ax.axvline(k, color="gray", ls=":", lw=0.8)
 ax.set_xlabel("frame t")
@@ -125,7 +126,7 @@ ax.set_title(f"error decomposition over time ({SEQ[1]}, K={K})", fontsize=10)
 ax.legend(fontsize=8, loc="upper right")
 ax.grid(alpha=0.3)
 fig.tight_layout()
-fig.savefig(f"{OUT}/decomposition.png", dpi=150)
+fig.savefig(f"{OUT}/decomposition{SUFFIX}.png", dpi=150)
 plt.close(fig)
 
 json.dump(
