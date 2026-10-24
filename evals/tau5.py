@@ -51,8 +51,11 @@ def tau5_pair(pred_t, pred_t1, flow_t1to0, gt_t=None):
 
 
 def tau5_sequence(preds, flows, gts=None):
-    """Mean tau5 over consecutive pairs of one sequence."""
+    """Mean tau5 over consecutive pairs of one sequence (GT-aligned fields)."""
     vals = []
+    if gts is not None:
+        from depthstream.utils import align_to_gt
+        preds = [align_to_gt(p, g) for p, g in zip(preds, gts)]
     for t in range(len(preds) - 1):
         if flows[t] is None:
             continue

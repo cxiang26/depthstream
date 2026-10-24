@@ -61,23 +61,21 @@ def test_adaptive_scheduler_triggers_on_scene_change():
 
 
 class GradientModel:
-    """Alternating-gradient 'model': call k returns base +/- slope*u.
+    """Alternating 'model': even calls are wide linear fields (2+u), odd
+    calls narrow quadratic fields (1.2+0.5u^2). Consecutive outputs differ
+    in spread and shape, so the anchor fit has a measurable effect and
+    contrast collapse is observable."""
 
-    Consecutive outputs are not affine-aligned (slope flips), so a due
-    keyframe's re-anchoring has a measurable effect.
-    """
-
-    def __init__(self, base=2.0, slope=1.0):
+    def __init__(self):
         self.calls = 0
-        self.base = base
-        self.slope = slope
 
     def __call__(self, frame):
         h, w = frame.shape[:2]
         u = np.tile(np.linspace(0, 1, w, dtype=np.float32), (h, 1))
-        s = self.slope if self.calls % 2 == 0 else -self.slope
         self.calls += 1
-        return (self.base + s * u).astype(np.float32)
+        if self.calls % 2 == 1:                       # call 0, 2, 4 ... wide
+            return (2.0 + 1.0 * u).astype(np.float32)
+        return (1.2 + 0.5 * u * u).astype(np.float32)  # narrow, same sign
 
 
 def test_flow_runs_on_every_frame_with_an_anchor():
@@ -90,22 +88,39 @@ def test_flow_runs_on_every_frame_with_an_anchor():
     assert st.n_flow == 9
 
 
+def _spread(o):
+    return np.percentile(o, 95) - np.percentile(o, 5)
+
+
 def test_due_keyframes_are_reanchored():
-    # Static scene, model slope flips each call. At t=3 the fresh field
-    # (3-u) must be aligned onto the propagated anchor (2+u): with the
-    # scale clipped to 0.25 the output is 2.625-0.25u, not the raw 3-u.
+    # Static scene. At t=3 the narrow fresh field must be spread-matched
+    # onto the wide anchor (alpha = sd ratio): the output's spread matches
+    # the anchor's and the raw fresh field is overwritten.
     st = DepthStream(GradientModel(), keyframe=3, flow="farneback")
     outs = [st.process(make_frame()) for _ in range(10)]
+    assert abs(_spread(outs[3]) / _spread(outs[0]) - 1.0) < 0.05
     u = np.tile(np.linspace(0, 1, 320, dtype=np.float32), (240, 1))
-    expected = 2.625 - 0.25 * u
-    assert np.allclose(outs[3], expected, atol=1e-3)
-    assert not np.allclose(outs[3], 3.0 - u, atol=1e-3)
+    assert not np.allclose(outs[3], 1.2 + 0.5 * u * u, atol=1e-3)
+
+
+def test_contrast_preserved_under_chaining():
+    # Regression guard for the collapse bug: iterated fits of fresh against
+    # the (noisy) warped anchor attenuated the scale and collapsed the
+    # chain's contrast to 0.44x raw. Spread matching must keep the chained
+    # field's spread within 10% of the wide model output's.
+    st = DepthStream(GradientModel(), keyframe=1, flow="farneback")
+    outs = [st.process(make_frame()) for _ in range(30)]
+    wide_spread = _spread(2.0 + np.tile(
+        np.linspace(0, 1, 320, dtype=np.float32), (240, 1)))
+    for o in outs[-10:]:
+        assert 0.9 <= _spread(o) / wide_spread <= 1.1
 
 
 def test_ema_blends_at_due_keyframes():
     # EMA must be active on due keyframes (not only on adaptive
     # promotions): with lambda=0.6 the output differs from pure
-    # re-anchoring wherever the aligned field misses the anchor.
+    # re-anchoring wherever the aligned field misses the anchor (the
+    # narrow quadratic shape cannot be affine-matched onto the anchor).
     st1 = DepthStream(GradientModel(), keyframe=3, flow="farneback", ema=1.0)
     st2 = DepthStream(GradientModel(), keyframe=3, flow="farneback", ema=0.6)
     o1 = [st1.process(make_frame()) for _ in range(6)]

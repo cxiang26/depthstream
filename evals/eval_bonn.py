@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from depthstream import DepthStream  # noqa: E402
 from depthstream.backends.ort_cpu import OnnxDepth  # noqa: E402
 from depthstream.flow import make_flow_backend, upsample_flow  # noqa: E402
-from depthstream.utils import depth_fullres  # noqa: E402
+from depthstream.utils import depth_fullres, align_to_gt  # noqa: E402
 import bonn_io  # noqa: E402
 
 
@@ -99,6 +99,7 @@ def main():
                 ms = (time.perf_counter() - t0) * 1000 / len(imgs)
 
             d1s, taes = [], []
+            souts = [align_to_gt(o, g) for o, g in zip(outs, gts)]
             for t in range(len(outs)):
                 d1 = delta1_aligned(outs[t], gts[t])
                 if d1 is not None:
@@ -109,7 +110,7 @@ def main():
                     g1 = cv2.resize(cv2.cvtColor(imgs[t + 1],
                                                  cv2.COLOR_BGR2GRAY), (fw, fh))
                     fl = upsample_flow(calc(g1, g0), W / fw, (W, H))
-                    te = tae_est(outs[t], outs[t + 1], fl)
+                    te = tae_est(souts[t], souts[t + 1], fl)
                     if te is not None:
                         taes.append(te)
             acc[name]["d1"].append(np.mean(d1s))

@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from depthstream import DepthStream  # noqa: E402
 from depthstream.backends.ort_cpu import OnnxDepth  # noqa: E402
 from depthstream.flow import make_flow_backend, upsample_flow  # noqa: E402
-from depthstream.utils import depth_fullres  # noqa: E402
+from depthstream.utils import depth_fullres, align_to_gt  # noqa: E402
 import bonn_io  # noqa: E402
 from tau5 import tau5_pair  # noqa: E402
 
@@ -41,6 +41,7 @@ for seq, _ in bonn_io.list_seqs(BONN):
             st = DepthStream(model, keyframe=kf, flow="dis", flow_width=fw,
                              ema=1.0, adaptive="adp" in name)
             outs = [st.process(im) for im in imgs]
+        outs = [align_to_gt(o, g) for o, g in zip(outs, gts)]
         vals = []
         for t in range(len(outs) - 1):
             g0 = cv2.resize(cv2.cvtColor(imgs[t], cv2.COLOR_BGR2GRAY), (fw, fh))

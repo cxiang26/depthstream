@@ -22,7 +22,8 @@ class DepthStream:
 
     def __init__(self, model, keyframe=10, flow="dis", flow_width=256,
                  ema=1.0, out_size=None, oracle_flow=False, adaptive=False,
-                 min_key_gap=2, res_tau=0.15, res_frac=0.30):
+                 min_key_gap=2, res_tau=0.15, res_frac=0.30,
+                 anchor_method="sd"):
         self.model = model
         self.keyframe = max(1, keyframe)
         self.calc = make_flow_backend(flow)
@@ -34,6 +35,7 @@ class DepthStream:
         self.min_key_gap = min_key_gap
         self.res_tau = res_tau
         self.res_frac = res_frac
+        self.anchor_method = anchor_method
         self.i = 0
         self.last_key = 0
         self.prev_out = None
@@ -88,7 +90,8 @@ class DepthStream:
                 out = d_full
             else:
                 a, b = align_affine(d_full, d_prop,
-                                    np.isfinite(d_prop) & (d_prop > 0))
+                                    np.isfinite(d_prop) & (d_prop > 0),
+                                    method=self.anchor_method)
                 d_aligned = a * d_full + b
                 out = (self.ema * d_aligned + (1 - self.ema) *
                        np.where(np.isfinite(d_prop), d_prop, d_aligned))

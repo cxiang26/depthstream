@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from depthstream import DepthStream  # noqa: E402
 from depthstream.backends.ort_cpu import OnnxDepth  # noqa: E402
 from depthstream.flow import backward_warp  # noqa: E402
-from depthstream.utils import depth_fullres  # noqa: E402
+from depthstream.utils import depth_fullres, align_to_gt  # noqa: E402
 import sintel_io  # noqa: E402
 
 
@@ -140,12 +140,13 @@ def main():
                 ms = (time.perf_counter() - t0) * 1000 / len(imgs)
 
             d1s, taes = [], []
+            souts = [align_to_gt(o, g) for o, g in zip(outs, gts)]
             for t in range(len(outs)):
                 d1 = delta1_aligned(outs[t], gts[t])
                 if d1 is not None:
                     d1s.append(d1)
                 if t + 1 < len(outs) and flows[t] is not None:
-                    te = tae_relative(outs[t], outs[t + 1], flows[t])
+                    te = tae_relative(souts[t], souts[t + 1], flows[t])
                     if te is not None:
                         taes.append(te)
             acc[name]["d1"].append(np.mean(d1s))
@@ -158,12 +159,13 @@ def main():
             outs = [dav2(im) for im in imgs]
             ms = (time.perf_counter() - t0) * 1000 / len(imgs)
             d1s, taes = [], []
+            souts = [align_to_gt(o, g) for o, g in zip(outs, gts)]
             for t in range(len(outs)):
                 d1 = delta1_aligned(outs[t], gts[t])
                 if d1 is not None:
                     d1s.append(d1)
                 if t + 1 < len(outs) and flows[t] is not None:
-                    te = tae_relative(outs[t], outs[t + 1], flows[t])
+                    te = tae_relative(souts[t], souts[t + 1], flows[t])
                     if te is not None:
                         taes.append(te)
             acc["dav2l518"]["d1"].append(np.mean(d1s))
