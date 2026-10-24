@@ -11,12 +11,16 @@ import os
 import sys
 import time
 
+import cv2
 import numpy as np
+
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from depthstream import DepthStream  # noqa: E402
 from depthstream.backends.ort_cpu import OnnxDepth  # noqa: E402
+from depthstream.flow import backward_warp  # noqa: E402
+from depthstream.utils import depth_fullres  # noqa: E402
 import sintel_io  # noqa: E402
 
 
@@ -33,7 +37,6 @@ def delta1_aligned(pred, gt):
 
 
 def tae_relative(pred_t, pred_t1, flow_t):
-    import cv2
     h, w = pred_t.shape
     gx, gy = np.meshgrid(np.arange(w, dtype=np.float32),
                          np.arange(h, dtype=np.float32))
@@ -48,17 +51,47 @@ def tae_relative(pred_t, pred_t1, flow_t):
     return float(np.abs(A @ coef - b).mean()) / max(float(np.abs(b).mean()), 1e-6)
 
 
+class DAv2Baseline:
+    def __init__(self, repo_dir, weights, encoder="vitl"):
+        import torch
+        sys.path.insert(0, repo_dir)
+        from depth_anything_v2.dpt import DepthAnythingV2
+        cfg = {"encoder": encoder, "features": 256,
+               "out_channels": [256, 512, 1024, 1024],
+               "use_bn": False, "use_clstoken": False}
+        m = DepthAnythingV2(**cfg)
+        m.load_state_dict(torch.load(weights, map_location="cpu"))
+        self.torch = torch
+        self.model = m.cuda().eval().half()
+
+    def __call__(self, frame_bgr, long_side=518):
+        rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB).astype(np.float32) / 255.0
+        h, w = rgb.shape[:2]
+        s = long_side / max(h, w)
+        nw, nh = int(round(w * s / 14)) * 14, int(round(h * s / 14)) * 14
+        rgb = cv2.resize(rgb, (nw, nh), interpolation=cv2.INTER_CUBIC)
+        x = self.torch.from_numpy(rgb.transpose(2, 0, 1)).cuda().half()[None]
+        with self.torch.no_grad():
+            d = self.model(x)
+        d = d.squeeze().float().cpu().numpy()
+        if d.shape != (h, w):
+            d = cv2.resize(d, (w, h), interpolation=cv2.INTER_LINEAR)
+        return d
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sintel-root", required=True)
+    ap.add_argument("--sintel-root", default=os.environ.get(
+        "DEPTHSTREAM_SINTEL", "./datasets/sintel"))
     ap.add_argument("--out-dir", default="results")
     ap.add_argument("--student-onnx", default="")
-    ap.add_argument("--student-engine", default="",
-                    help="TensorRT engine; overrides --student-onnx")
+    ap.add_argument("--student-engine", default="")
     ap.add_argument("--backend", default="ort", choices=["ort", "trt"])
     ap.add_argument("--max-seqs", type=int, default=23)
     ap.add_argument("--frames", type=int, default=50)
     ap.add_argument("--skip-dav2", action="store_true")
+    ap.add_argument("--ema", type=float, default=1.0)
+    ap.add_argument("--tag", default="")
     ap.add_argument("--dav2-repo", default="")
     ap.add_argument("--dav2-weights", default="")
     args = ap.parse_args()
@@ -74,10 +107,10 @@ def main():
 
     names = ["dense", "kf3", "kf10", "kf10-adp"]
     acc = {n: {"d1": [], "tae": [], "ms": []} for n in names}
+    per_seq = {n: {} for n in names}
     if not args.skip_dav2:
-        from dav2 import DAv2Baseline
-        dav2 = DAv2Baseline(args.dav2_repo, args.dav2_weights)
         acc["dav2l518"] = {"d1": [], "tae": [], "ms": []}
+        dav2 = DAv2Baseline(args.dav2_repo, args.dav2_weights)
 
     for si, (scene, seq, _) in enumerate(seqs):
         imgs, gts, flows = sintel_io.load_seq(args.sintel_root, scene, seq,
@@ -87,20 +120,25 @@ def main():
         print(f"[{si+1}/{len(seqs)}] {scene}/{seq}  {len(imgs)} frames",
               flush=True)
 
-        def stream(name, kf):
-            st = DepthStream(model, keyframe=kf, flow="dis", flow_width=256,
-                             ema=1.0,
-                             adaptive=name.endswith("adp"))
-            outs, t0 = [], time.perf_counter()
-            for im in imgs:
-                outs.append(st.process(im))
-            return outs, (time.perf_counter() - t0) * 1000 / len(imgs)
-
-        outs_by = {}
         for name in names:
-            kf = int("".join(c for c in name if c.isdigit()) or 1)
-            outs, ms = stream(name, kf)
-            outs_by[name] = outs
+            if name == "dense":
+                # Pure per-frame baseline: no scheduling, no re-anchoring.
+                outs = []
+                t0 = time.perf_counter()
+                for im in imgs:
+                    outs.append(depth_fullres(model(im), im.shape[:2]))
+                ms = (time.perf_counter() - t0) * 1000 / len(imgs)
+            else:
+                kf = int("".join(c for c in name if c.isdigit()) or 1)
+                st = DepthStream(model, keyframe=kf, flow="dis",
+                                 flow_width=256, ema=args.ema,
+                                 adaptive=name.endswith("adp"))
+                outs = []
+                t0 = time.perf_counter()
+                for im in imgs:
+                    outs.append(st.process(im))
+                ms = (time.perf_counter() - t0) * 1000 / len(imgs)
+
             d1s, taes = [], []
             for t in range(len(outs)):
                 d1 = delta1_aligned(outs[t], gts[t])
@@ -113,6 +151,7 @@ def main():
             acc[name]["d1"].append(np.mean(d1s))
             acc[name]["tae"].append(np.mean(taes))
             acc[name]["ms"].append(ms)
+            per_seq.setdefault(name, {})[seq] = round(float(np.mean(d1s)), 4)
 
         if not args.skip_dav2:
             t0 = time.perf_counter()
@@ -142,9 +181,11 @@ def main():
             "n_seqs": len(v["d1"]),
         }
     os.makedirs(args.out_dir, exist_ok=True)
-    out_path = os.path.join(args.out_dir, "eval_sintel_result.json")
-    with open(out_path, "w") as f:
+    suffix = ("_" + args.tag) if args.tag else ("_ema" + str(args.ema) if args.ema != 1.0 else "")
+    with open(os.path.join(args.out_dir, f"eval_sintel_result{suffix}.json"), "w") as f:
         json.dump(table, f, indent=1)
+    with open(os.path.join(args.out_dir, f"eval_sintel_perseq{suffix}.json"), "w") as f:
+        json.dump(per_seq, f, indent=1)
     print(json.dumps(table, indent=1))
 
 

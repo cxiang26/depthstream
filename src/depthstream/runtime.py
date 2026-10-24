@@ -53,7 +53,7 @@ class DepthStream:
         is_key = due or self.prev_out is None
         d_prop = fl = None
 
-        if not is_key and self.prev_out is not None:
+        if self.prev_out is not None:
             t0 = time.perf_counter()
             if self.oracle_flow and gt_fwd_flow is not None:
                 fl = upsample_flow(
@@ -68,7 +68,8 @@ class DepthStream:
             d_prop = backward_warp(self.prev_out, fl)
             self.t_warp += time.perf_counter() - t1
 
-            if self.adaptive and (self.i - self.last_key) >= self.min_key_gap:
+            if (not is_key and self.adaptive and
+                    (self.i - self.last_key) >= self.min_key_gap):
                 fl_s = self.calc(gray_s, self.prev_gray)
                 warp_s = backward_warp(self.prev_gray, fl_s)
                 bad = (np.abs(warp_s.astype(np.float32) -
