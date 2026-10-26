@@ -21,6 +21,22 @@ def depth_fullres(d_small, shape_hw):
                       interpolation=cv2.INTER_LINEAR)
 
 
+def align_to_gt(pred, gt, cap=500.0):
+    """Scale-shift align pred into GT units over the valid mask.
+
+    Pair statistics (TAE, tau5) computed on GT-aligned fields are invariant
+    to each frame's affine re-parameterization, so anchoring choices cannot
+    bias them. Returns the aligned field (float32, same shape)."""
+    import numpy as np
+    p, g = pred.astype(np.float64), gt.astype(np.float64)
+    m = (g > 0) & (g < cap) & np.isfinite(p) & np.isfinite(g)
+    if m.sum() < 500:
+        return pred.astype(np.float32)
+    A = np.stack([p[m], np.ones(m.sum())], 1)
+    coef, *_ = np.linalg.lstsq(A, g[m], rcond=None)
+    return (coef[0] * pred + coef[1]).astype(np.float32)
+
+
 def colorize(d, lo=None, hi=None):
     lo = float(np.percentile(d, 2)) if lo is None else lo
     hi = float(np.percentile(d, 98)) if hi is None else hi

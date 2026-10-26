@@ -1,112 +1,92 @@
 # DepthStream
 
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue)]()
+[![Python](https://img.shields.io/badge/Python-3.11%2B-blue)]()
 
 **Training-free amortized video depth streaming for tiny monocular depth
 models.**
 
-Run a 6M-parameter monocular depth model as a *temporally stable,
-full-resolution video depth stream* at up to 249 FPS end-to-end — on a
-laptop GPU **or a plain CPU** — with zero training and zero custom
-training pipelines.
+DepthStream wraps a frozen 6M-parameter monocular depth student
+(DepthART MobileNetV4-M-slim-SPF, TensorRT fp16) in a completely
+training-free streaming runtime:
+
+- **keyframe inference** — the student runs every `K` frames;
+- **backward-flow propagation** — in-between frames reuse the previous
+  full-resolution depth field through DIS optical flow;
+- **spread-matching affine re-anchoring** — fresh keyframe predictions are
+  aligned to the propagated field with a contrast-preserving
+  spread-matching fit (sign-of-covariance scale), robust under
+  errors-in-variables where plain least squares collapses contrast;
+- **photometric-residual adaptive scheduling** — flow failure triggers
+  early re-anchoring.
+
+At `K=1` the runtime degenerates to per-frame inference exactly; with
+`K>1` per-frame accuracy is matched or exceeded while end-to-end latency
+drops 2–3.5× and frame-to-frame temporal error drops ~30%.
+
+## Measured performance (640×480)
+
+| platform | backend | per-frame | kf10 streaming |
+|---|---|---|---|
+| RTX 3060 Laptop 6 GB | TensorRT fp16 | 12.33 ms | **5.74 ms (174 FPS)** |
+| desktop CPU | ONNX Runtime fp32 | 27.53 ms | **7.39 ms (135 FPS)** |
+| Jetson Nano 4 GB | TensorRT fp16 | 77.65 ms | **22.23 ms (45 FPS)** |
+
+Accuracy on Sintel (δ1 after GT alignment): kf3 = per-frame exactly
+(0.461); kf10 0.441; temporal alignment error kf10 0.103 vs per-frame
+0.151. Numbers are backend-invariant (TRT fp16 GPU vs ORT fp32 CPU,
+|Δδ1| ≤ 1e-4).
+
+## Repository layout
 
 ```
-pip install -e .
-depthstream run video.mp4 -K 10 -o out.mp4        # CPU, auto-downloads weights
+src/depthstream/       runtime package: DepthStream scheduler, DIS flow,
+                       spread-matching re-anchoring, TRT/ORT backends
+evals/                 dataset evaluation: Sintel, Bonn RGB-D, τ5/TAE
+                       temporal metrics (canonical ORT backend), DAv2 baselines,
+                       adaptive-trigger statistics
+tools/                 bench_unified.py  unified 3-backend timing harness
+                       build_trt8_fp16.py  TensorRT 8 fp16 engine builder (Nano)
+                       ds_nano.py  self-contained Jetson Nano deployment (py3.6)
+                       nano_slam_fix/  DeepStream C++ depth integration sources
+                       fetch_bonn*.py, extract_frames.py  dataset preparation
+tests/                 runtime unit tests (re-anchoring, blending, regression)
+depthestream.py        standalone runtime entry point
+depthart_cascade.py    speculative-cascade runtime variant
+photoruler.py          single-photo real-world measurement app (EXIF → metric)
+eval_sintel_v2.py      standalone Sintel evaluation (6 configs + DAv2-L baseline)
+eval_bonn.py           standalone Bonn evaluation
+bench_cpu.py           CPU platform benchmark (thread sweep, INT8, E2E)
+sintel_io.py, bonn_io.py  dataset readers (.dpt PIEH depth, .flo flow)
+convert_fp16.py, build_engine.py, build_metric_engine.py  ONNX/TRT tooling
 ```
 
-## How it works
+Evaluation result JSONs are written to `benchmarks/` (git-ignored; not
+committed).
 
-Depth fields change slowly under camera and object motion: most of the
-signal at frame *t* is already present at frame *t−1*, displaced by motion.
-DepthStream exploits this with three training-free components:
+## Environment
 
-1. **Keyframe inference** — a frozen 6M student (DepthART MobileNetV4-slim,
-   TensorRT fp16 or ONNX Runtime) runs every *K* frames;
-2. **Backward-flow propagation** — in-between frames reuse the previous
-   depth field through DIS optical-flow warping;
-3. **Affine re-anchoring** — fresh keyframe predictions are aligned to the
-   propagated field by closed-form scale–shift fitting, which transfers
-   temporal continuity without suppressing detail. A photometric-residual
-   monitor triggers early re-anchoring where flow fails (occlusions, fast
-   motion).
-
-## Results
-
-| Config | Sintel δ1↑ | Sintel TAE↓ | ms/frame | Bonn δ1↑ |
-|---|---|---|---|---|
-| DAv2-L @518 per-frame | 0.4930 | 0.1844 | 56.4 | 0.9811 |
-| student per-frame | 0.4614 | 0.1585 | 10.6 | 0.9655 |
-| **DepthStream kf3** | **0.4614** | 0.1343 | **8.4** | 0.9637 |
-| **DepthStream kf10-adp** | 0.4434 | **0.1054** | 7.6 | 0.9484 |
-
-- kf3 matches per-frame accuracy **exactly** while cutting temporal error
-  15% and latency 20% — the per-frame baseline is strictly dominated.
-- Streaming retains 93.6–98.2% of the $6.7$–$13.7\times$ slower teacher's
-  accuracy with **better temporal stability than the teacher itself**.
-- Accuracy is backend-invariant: TensorRT fp16 GPU and ONNX-Runtime fp32 CPU
-  agree to |Δδ1| ≤ 1e-4 over all configurations.
-
-See `benchmarks/` for full result JSONs and the paper draft for details.
-
-## Install
+- Linux (tested in WSL2 Ubuntu 20.04) + NVIDIA GPU (tested RTX 3060 Laptop 6 GB);
+  Jetson Nano path tested on JetPack 4.6.1 (Python 3.6, TensorRT 8.2)
+- Python 3.11, PyTorch 2.7.1+cu126 — see `requirements.txt`
+- TensorRT (pip wheels on desktop; 8.2.1 on Nano); ONNX Runtime 1.26 for
+  the CPU path
 
 ```bash
-# CPU-only (default): numpy + OpenCV + ONNX Runtime
-pip install -e .
-
-# GPU: add TensorRT + torch for the TensorRT backend
-pip install -e .[trt]
+pip install -r requirements.txt
+python -m pytest tests/          # runtime unit tests
+python tools/bench_unified.py --help
 ```
 
-Python ≥ 3.9, Linux/Windows. On first run the student ONNX (24 MB) is
-downloaded from the official
-[DepthART release](https://huggingface.co/Fengxue93/DepthART) into
-`~/.cache/depthstream/` (override with `DEPTHSTREAM_CACHE`).
+Each eval/tool script is runnable as-is; see its module docstring for
+arguments and required data paths.
 
-## Usage
+## Notes
 
-```bash
-depthstream run video.mp4 -K 10 -o out.mp4              # CPU backend
-depthstream run video.mp4 -K 10 --backend trt \
-    --engine student_fp16.engine                        # TensorRT backend
-depthstream run video.mp4 -K 10 --adaptive              # failure-aware scheduling
-```
-
-Python API:
-
-```python
-from depthstream import DepthStream
-from depthstream.backends.ort_cpu import OnnxDepth
-
-stream = DepthStream(OnnxDepth("student.onnx"), keyframe=10)
-for frame in video_frames:
-    depth = stream.process(frame)     # full-resolution, temporally stable
-```
-
-## Benchmarks
-
-`evals/` contains the Sintel / Bonn / CPU evaluation pipelines used in the
-paper (each a single command; see `--help`). Result JSONs are committed
-under `benchmarks/`.
-
-## Notes on weights
-
-The student ONNX is downloaded from the official DepthART release and
-inherits **CC BY-NC 4.0** terms from DepthART / Depth Anything V2
-(non-commercial use of the weights). The DepthStream runtime code itself is
-Apache-2.0.
-
-## Citing
-
-If you use DepthStream, please also cite the underlying model:
-
-```bibtex
-@article{depthart2026,
-  title  = {DepthART: Scaling Foundation Monocular Depth to Tiny Models},
-  author = {Xue, Feng and others},
-  journal= {arXiv:2607.17099},
-  year   = {2026}
-}
-```
+- Code licensed Apache-2.0. Student/teacher weights inherit CC BY-NC 4.0
+  terms from DepthART and Depth Anything V2 — non-commercial use of the
+  weights; the runtime itself carries no such restriction.
+- Known pitfalls handled in the code: Sintel GT sky outliers (capped at
+  500 m), Bonn rgb/depth timestamp pairing, PIEH `.dpt` depth format,
+  cross-process TensorRT tactic nondeterminism (canonical metrics use a
+  deterministic ORT backend).

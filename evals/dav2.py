@@ -1,6 +1,8 @@
 """Depth Anything V2-Large per-frame baseline (optional; needs the DAv2 repo)."""
 import sys
 
+import numpy as np
+
 
 class DAv2Baseline:
     def __init__(self, repo_dir, weights, encoder="vitl"):
@@ -30,6 +32,3 @@ class DAv2Baseline:
             import cv2
             d = cv2.resize(d, (w, h), interpolation=cv2.INTER_LINEAR)
         return d
-
-
-import numpy as np  # noqa: E402  (kept last to match module style)

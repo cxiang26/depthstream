@@ -28,3 +28,10 @@ page*.png
 # tooling
 node_modules/
 .zcode/
+
+# internal working content - local only, never published
+paper/
+docs/
+results/
+benchmarks/
+jrtip_overleaf.zip

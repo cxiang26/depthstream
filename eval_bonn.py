@@ -14,16 +14,12 @@ import time
 import cv2
 import numpy as np
 
-from depthstream import DepthStream  # noqa: E402
-from depthstream.backends.ort_cpu import OnnxDepth  # noqa: E402
-import bonn_io  # noqa: E402  (sibling module)
+sys.path.insert(0, "/mnt/c/Users/canqunxiang/ZCodeProject/depthstream-paper")
+from depthestream import DepthStream, TrtRelativeDepth  # noqa: E402
+import bonn_io  # noqa: E402
 from eval_sintel_v2 import DAv2Baseline, delta1_aligned  # noqa: E402
 
-OUT = os.environ.get("DEPTHSTREAM_OUT", "./results")
-ONNX = os.environ.get(
-    "DEPTHSTREAM_ONNX",
-    os.path.join(os.path.expanduser("~"), ".cache", "depthstream",
-                 "depthart_mnv4m_slim_spf_224.onnx"))
+OUT = "/home/cq/depthart_test"
 
 
 def tae_est(pred_t, pred_t1, flow_bwd):
@@ -51,7 +47,7 @@ def main():
 
     seqs = bonn_io.list_seqs()
     print("bonn seqs:", seqs)
-    model = OnnxDepth(ONNX, threads=4)
+    model = TrtRelativeDepth()
     dav2 = None if args.skip_dav2 else DAv2Baseline()
 
     names = ["dense", "kf3", "kf10-adp"]

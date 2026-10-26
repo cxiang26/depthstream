@@ -13,15 +13,12 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from depthstream import DepthStream  # noqa: E402
-from depthstream.utils import colorize  # noqa: E402
+sys.path.insert(0, "/mnt/c/Users/canqunxiang/ZCodeProject/depthstream-paper")
+from depthestream import DepthStream, colorize  # noqa: E402
 
-ONNX32 = os.environ.get(
-    "DEPTHSTREAM_ONNX",
-    os.path.join(os.path.expanduser("~"), ".cache", "depthstream",
-                 "depthart_mnv4m_slim_spf_224.onnx"))
-ONNX8 = ONNX32.replace(".onnx", "_int8.onnx")
-ENGINE = os.environ.get("DEPTHSTREAM_ENGINE", "")
+ONNX32 = "/home/cq/depthart_test/mnv4m_slim_spf_224.onnx"
+ONNX8 = "/home/cq/depthart_test/mnv4m_slim_spf_224_int8.onnx"
+ENGINE = "/home/cq/depthart_test/depthart_fp16.engine"
 MEAN = np.asarray((0.485, 0.456, 0.406), dtype=np.float32)
 STD = np.asarray((0.229, 0.224, 0.225), dtype=np.float32)
 
@@ -98,11 +95,10 @@ def main():
     print(f"best: threads={best_th} {'int8' if best_path == ONNX8 else 'fp32'}")
 
     # 2) end-to-end DepthStream on CPU
-    cap = cv2.VideoCapture(os.environ.get(
-    "DEPTHSTREAM_TEST_VIDEO", ""))
+    cap = cv2.VideoCapture("/home/cq/depthart_test/test_video.mp4")
     model = OnnxCpuDepth(best_path, threads=best_th)
     st = DepthStream(model, keyframe=10, flow="dis", flow_width=256)
-    vw = cv2.VideoWriter("ds_cpu.mp4",
+    vw = cv2.VideoWriter("/home/cq/depthart_test/ds_cpu.mp4",
                          cv2.VideoWriter_fourcc(*"mp4v"), 30, (1280, 480))
     n = 0
     while n < 90:
@@ -117,16 +113,12 @@ def main():
     print("E2E CPU:", json.dumps(st.stats()))
 
     # 3) agreement with GPU TensorRT output
-    from depthstream.backends.trt_gpu import TrtDepth  # noqa: E402
-    gpu = TrtDepth(os.environ.get(
-        "DEPTHSTREAM_ENGINE",
-        os.path.join(os.path.expanduser("~"), ".cache", "depthstream",
-                     "depthart_fp16.engine")))
+    from depthestream import TrtRelativeDepth  # noqa: E402
+    gpu = TrtRelativeDepth()
     agree = []
     for seq in ("alley_1", "alley_2", "market_2"):
         for t in (5, 20, 40):
-            root = os.environ.get("DEPTHSTREAM_SINTEL", "")
-            p = f"{root}/training/clean/{seq}/frame_{t+1:04d}.png"
+            p = f"/home/cq/depthart_test/training/clean/{seq}/frame_{t+1:04d}.png"
             im = cv2.imread(p)
             if im is None:
                 continue

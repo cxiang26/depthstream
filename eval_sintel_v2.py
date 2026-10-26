@@ -19,11 +19,12 @@ import time
 import cv2
 import numpy as np
 
-from depthstream import DepthStream
-from depthstream.backends import make_backend
-from depthstream.flow import backward_warp
-from depthstream.utils import colorize, depth_fullres
-import sintel_io  # noqa: E402  (sibling module)
+sys.path.insert(0, "/mnt/c/Users/canqunxiang/ZCodeProject/depthstream-paper")
+from depthestream import (DepthStream, TrtRelativeDepth, backward_warp,  # noqa
+                          colorize, depth_fullres)
+import sintel_io  # noqa: E402
+
+OUT = "/home/cq/depthart_test"
 
 
 def delta1_aligned(pred, gt):
@@ -54,15 +55,16 @@ def tae_relative(pred_t, pred_t1, flow_t):
 
 
 class DAv2Baseline:
-    def __init__(self, repo_dir, weights):
+    def __init__(self):
         import torch
-        sys.path.insert(0, repo_dir)
+        sys.path.insert(0, "/home/cq/depthart_test/Depth-Anything-V2-main")
         from depth_anything_v2.dpt import DepthAnythingV2
         cfg = {"encoder": "vitl", "features": 256,
                "out_channels": [256, 512, 1024, 1024],
                "use_bn": False, "use_clstoken": False}
         m = DepthAnythingV2(**cfg)
-        m.load_state_dict(torch.load(weights, map_location="cpu"))
+        m.load_state_dict(torch.load(
+            "/home/cq/depthart_test/depth_anything_v2_vitl.pth", map_location="cpu"))
         self.torch = torch
         self.model = m.cuda().eval().half()
 
@@ -99,33 +101,20 @@ def err_heat(pred, gt):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sintel-root", default=os.environ.get(
-        "DEPTHSTREAM_SINTEL", "./datasets/sintel"))
-    ap.add_argument("--out-dir", default="results")
     ap.add_argument("--max-seqs", type=int, default=6)
     ap.add_argument("--frames", type=int, default=50)
     ap.add_argument("--skip-dav2", action="store_true")
-    ap.add_argument("--backend", default="ort", choices=["ort", "trt"])
-    ap.add_argument("--onnx", default="",
-                    help="student ONNX path (default: auto-download)")
-    ap.add_argument("--engine", default="",
-                    help="student TRT engine path (backend=trt)")
-    ap.add_argument("--dav2-repo", default="",
-                    help="Depth-Anything-V2 repo checkout (for the baseline)")
-    ap.add_argument("--dav2-weights", default="",
-                    help="DAv2-L checkpoint path (for the baseline)")
+    ap.add_argument("--backend", default="trt", choices=["trt", "cpu"])
     ap.add_argument("--qual-seq", type=int, default=0)
     args = ap.parse_args()
 
-    seqs = sintel_io.list_depth_seqs(args.sintel_root)[:args.max_seqs]
-    if args.backend == "trt":
-        model = make_backend("trt", engine_path=args.engine)
+    seqs = sintel_io.list_depth_seqs()[:args.max_seqs]
+    if args.backend == "cpu":
+        from bench_cpu import OnnxCpuDepth
+        model = OnnxCpuDepth("/home/cq/depthart_test/mnv4m_slim_spf_224.onnx",
+                             threads=4)
     else:
-        onnx_path = args.onnx
-        if not onnx_path:
-            from depthstream.model_zoo import ensure_student_onnx
-            onnx_path = ensure_student_onnx()
-        model = make_backend("ort", onnx_path=onnx_path)
+        model = TrtRelativeDepth()
 
     def make(name):
         kf = 1
@@ -147,8 +136,7 @@ def main():
         acc["dav2l518"] = {"d1": [], "tae": [], "ms": []}
     per_seq = {n: {} for n in names + (["dav2l518"] if not args.skip_dav2 else [])}
     accum = {n: {} for n in names}
-    dav2 = None if args.skip_dav2 else DAv2Baseline(args.dav2_repo,
-                                                    args.dav2_weights)
+    dav2 = None if args.skip_dav2 else DAv2Baseline()
 
     qual_saved = False
     for si, (scene, seq, _) in enumerate(seqs):
@@ -206,7 +194,7 @@ def main():
 
         # qualitative strips for one sequence: frame 10 of dense/kf10-oracle/DAv2
         if si == args.qual_seq and not qual_saved:
-            qdir = os.path.join(args.out_dir, "qual")
+            qdir = f"{OUT}/qual"
             os.makedirs(qdir, exist_ok=True)
             t = min(10, len(imgs) - 1)
             cv2.imwrite(f"{qdir}/rgb.png",
@@ -234,8 +222,7 @@ def main():
                            for k, v in sorted(b.items())}
                        for n, b in accum.items() if b}
     suffix = "_cpu" if args.backend == "cpu" else ""
-    with open(os.path.join(args.out_dir,
-                           f"eval_v2_result{suffix}.json"), "w") as f:
+    with open(f"{OUT}/eval_v2_result{suffix}.json", "w") as f:
         json.dump(table, f, indent=1)
     print(json.dumps(table["_per_seq"] and table, indent=1))
 
