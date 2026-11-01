@@ -24,6 +24,23 @@ At `K=1` the runtime degenerates to per-frame inference exactly; with
 `K>1` per-frame accuracy is matched or exceeded while end-to-end latency
 drops 2–3.5× and frame-to-frame temporal error drops ~30%.
 
+## Citation
+
+If DepthStream is helpful to your research, please consider citing the
+accompanying paper:
+
+```bibtex
+@misc{xiang2026depthstream,
+  title  = {DepthStream: Training-Free Temporal Consistency for
+           Real-Time Video Depth Estimation},
+  author = {Canqun Xiang and Li Wang and Xiong Li and Chaoqun Xiang},
+  year   = {2026},
+  note   = {Manuscript submitted for publication}
+}
+```
+
+> The publication venue will be updated here upon acceptance.
+
 ## Measured performance (640×480)
 
 | platform | backend | per-frame | kf10 streaming |
